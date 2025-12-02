@@ -2,7 +2,7 @@ import { Card, Table, Row, Col, Button, Modal, Input, message, Tag } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { fetchVideos, Video } from '../api/videos'
-import { fetchBackgrounds, Background, createBackground, markBackgroundReady } from '../api/backgrounds'
+import { fetchBackgrounds, Background, createBackground, markBackgroundReady, setBackgroundContentType } from '../api/backgrounds'
 import { fetchCalibrations, Calibration } from '../api/calibrations'
 import { useRef, useEffect, useState } from 'react'
 
@@ -41,63 +41,93 @@ const VideosPage = () => {
     async (payload: { camera_count: number; notes?: string; files: File[] }) => {
       const { camera_count, notes, files } = payload
 
-      // 第一步：在后端创建背景记录（生成 tos_path 和 PostObject 表单数据），状态为 uploading
-      const created = await createBackground({ camera_count, notes })
-      if (!created.post_form_data) {
-        throw new Error('后端未返回 post_form_data，无法上传到 TOS')
-      }
-
-      // 第二步：使用 PostObject 表单上传文件到 TOS（可绕过 CORS）
-      // 目前占位实现：只上传第一个文件。未来如果需要多文件上传，可以扩展为一个前缀 + 多个对象。
-      const firstFile = files[0]
-      if (!firstFile) {
+      if (!files || files.length === 0) {
         throw new Error('未选择任何文件')
       }
 
-      const { action, fields } = created.post_form_data
+      // 提取文件信息（文件名和 MIME 类型）
+      const fileInfos = files.map(file => ({
+        name: file.name,
+        type: file.type || 'application/octet-stream' // 如果浏览器无法识别类型，使用默认值
+      }))
 
-      // 使用 FormData 构建表单数据
-      const formData = new FormData()
-      // 先添加所有表单字段（顺序很重要，必须在 file 之前）
-      Object.entries(fields).forEach(([key, value]) => {
-        formData.append(key, value)
+      // 第一步：在后端创建背景记录（生成 tos_path 和 PostObject 表单数据），状态为 uploading
+      const created = await createBackground({ 
+        camera_count, 
+        notes, 
+        file_infos: fileInfos 
       })
-      // 最后添加文件
-      formData.append('file', firstFile)
+      if (!created.post_form_data_list || created.post_form_data_list.length === 0) {
+        throw new Error('后端未返回 post_form_data_list，无法上传到 TOS')
+      }
 
-      // 使用 fetch 提交表单（POST 方法）
-      // 注意：PostObject 上传可能因为 CORS 限制导致无法读取响应，但上传本身可能已成功
-      let uploadSuccess = false
-      try {
-        const response = await fetch(action, {
-          method: 'POST',
-          body: formData,
+      if (created.post_form_data_list.length !== files.length) {
+        throw new Error(`后端返回的表单数据数量（${created.post_form_data_list.length}）与文件数量（${files.length}）不匹配`)
+      }
+
+      // 第二步：使用 PostObject 表单上传所有文件到 TOS（可绕过 CORS）
+      // 循环上传每个文件
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        const postFormData = created.post_form_data_list[i]
+        const { action, fields } = postFormData
+
+        // 使用 FormData 构建表单数据
+        const formData = new FormData()
+        // 先添加所有表单字段（顺序很重要，必须在 file 之前）
+        Object.entries(fields).forEach(([key, value]) => {
+          formData.append(key, value)
         })
-        
-        // 检查响应状态码：200-299 表示成功，204 也表示成功
-        if (response.status >= 200 && response.status < 300) {
+        // 最后添加文件
+        formData.append('file', file)
+
+        // 使用 fetch 提交表单（POST 方法）
+        // 注意：PostObject 上传可能因为 CORS 限制导致无法读取响应，但上传本身可能已成功
+        let uploadSuccess = false
+        try {
+          const response = await fetch(action, {
+            method: 'POST',
+            body: formData,
+          })
+          
+          // 检查响应状态码：200-299 表示成功，204 也表示成功
+          if (response.status >= 200 && response.status < 300) {
+            uploadSuccess = true
+          } else {
+            // 尝试读取错误信息
+            const errorText = await response.text().catch(() => '无法读取错误信息（可能是 CORS 限制）')
+            console.warn(`文件 ${file.name} 上传响应状态码 ${response.status}:`, errorText)
+            // 即使状态码不是 2xx，也继续执行，因为文件可能已经上传成功
+            uploadSuccess = true // 假设上传成功，让后续流程继续
+          }
+        } catch (error: any) {
+          // 捕获网络错误（如 CORS 错误）
+          console.warn(`文件 ${file.name} 上传请求异常（可能是 CORS 限制，但文件可能已上传）:`, error)
+          // 即使有异常，也假设上传成功，让后续流程继续
           uploadSuccess = true
-        } else {
-          // 尝试读取错误信息
-          const errorText = await response.text().catch(() => '无法读取错误信息（可能是 CORS 限制）')
-          console.warn(`TOS 上传响应状态码 ${response.status}:`, errorText)
-          // 即使状态码不是 2xx，也继续执行，因为文件可能已经上传成功
-          // 后续可以通过 markBackgroundReady 来验证
-          uploadSuccess = true // 假设上传成功，让后续流程继续
         }
-      } catch (error: any) {
-        // 捕获网络错误（如 CORS 错误）
-        console.warn('TOS 上传请求异常（可能是 CORS 限制，但文件可能已上传）:', error)
-        // 即使有异常，也假设上传成功，让后续流程继续
-        // 因为 PostObject 表单提交是同步的，如果文件已上传到 TOS，说明请求已成功
-        uploadSuccess = true
+        
+        if (!uploadSuccess) {
+          throw new Error(`文件 ${file.name} 上传到 TOS 失败`)
+        }
+      }
+
+      // 第三步：设置所有文件的 Content-Type
+      // 构建文件名到 Content-Type 的映射
+      const fileContentTypes: Record<string, string> = {}
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        fileContentTypes[file.name] = file.type || 'application/octet-stream'
       }
       
-      if (!uploadSuccess) {
-        throw new Error('上传到 TOS 失败')
+      try {
+        await setBackgroundContentType(created.id, fileContentTypes)
+      } catch (error: any) {
+        // 设置 Content-Type 失败不影响主流程，只记录警告
+        console.warn('设置 Content-Type 失败（不影响上传）:', error)
       }
 
-      // 第三步：通知后端上传已完成，将状态标记为 ready
+      // 第四步：通知后端上传已完成，将状态标记为 ready
       const ready = await markBackgroundReady(created.id)
       return ready
     },

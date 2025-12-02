@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, Optional
 
 import tos
 
@@ -63,7 +63,30 @@ def generate_tos_upload_url(object_key: str, expires: int = 3600) -> str:
     return out.signed_url
 
 
-def generate_tos_post_form_data(object_key: str, expires: int = 3600) -> dict:
+def set_tos_object_content_type(object_key: str, content_type: str) -> None:
+    """
+    设置 TOS 对象的 Content-Type 元数据。
+    注意：需要在对象上传后调用此函数。
+    """
+    client = get_tos_client()
+    bucket = settings.tos_bucket
+    if not bucket:
+        raise RuntimeError("TOS_BUCKET 未配置")
+    
+    try:
+        # 使用 set_object_meta 设置对象的 Content-Type
+        client.set_object_meta(
+            bucket=bucket,
+            key=object_key,
+            content_type=content_type,
+        )
+    except Exception as e:
+        # 如果设置失败，记录错误但不抛出异常（避免影响主流程）
+        import logging
+        logging.warning(f"设置对象 {object_key} 的 Content-Type 失败: {e}")
+
+
+def generate_tos_post_form_data(object_key: str, content_type: Optional[str] = None, expires: int = 3600) -> dict:
     """
     为指定对象 key 生成 TOS PostObject 表单数据（用于浏览器表单上传，可绕过 CORS）。
     参考文档：https://www.volcengine.com/docs/6349/129225?lang=zh
@@ -97,15 +120,27 @@ def generate_tos_post_form_data(object_key: str, expires: int = 3600) -> dict:
     endpoint = endpoint.replace("https://", "").replace("http://", "")
     action_url = f"https://{bucket}.{endpoint}/"
 
+    # 构建表单字段
+    fields = {
+        "key": object_key,
+        "policy": result.policy,
+        "x-tos-algorithm": result.algorithm,
+        "x-tos-credential": result.credential,
+        "x-tos-date": result.date,
+        "x-tos-signature": result.signature,
+    }
+    
+    # 注意：Content-Type 如果要在 PostObject 中使用，需要在 policy 的 conditions 中声明
+    # 但 TOS SDK 的 conditions 参数格式可能不支持直接添加 Content-Type
+    # 暂时不添加 Content-Type，避免导致签名验证失败
+    # 如果需要设置 Content-Type，可以考虑：
+    # 1. 使用 PUT 方式上传（需要 CORS 配置）
+    # 2. 或者在上传后通过 set_object_meta 设置元数据
+    # if content_type:
+    #     fields["Content-Type"] = content_type
+
     # 返回表单数据
     return {
         "action": action_url,
-        "fields": {
-            "key": object_key,
-            "policy": result.policy,
-            "x-tos-algorithm": result.algorithm,
-            "x-tos-credential": result.credential,
-            "x-tos-date": result.date,
-            "x-tos-signature": result.signature,
-        },
+        "fields": fields,
     }
