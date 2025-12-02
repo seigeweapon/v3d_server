@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, users, videos, jobs, results
+from app.api import auth, users, videos, jobs, results, calibrations, backgrounds
 from app.core.config import settings
 from app.database import Base, engine
 
@@ -23,6 +23,8 @@ app.include_router(users.router, prefix=settings.api_v1_prefix)
 app.include_router(videos.router, prefix=settings.api_v1_prefix)
 app.include_router(jobs.router, prefix=settings.api_v1_prefix)
 app.include_router(results.router, prefix=settings.api_v1_prefix)
+app.include_router(calibrations.router, prefix=settings.api_v1_prefix)
+app.include_router(backgrounds.router, prefix=settings.api_v1_prefix)
 
 
 @app.get("/")

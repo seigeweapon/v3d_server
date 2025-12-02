@@ -40,7 +40,10 @@ const JobsPage = () => {
           <Select
             style={{ width: 240 }}
             placeholder="选择视频"
-            options={videos?.map((video) => ({ label: video.filename, value: video.id }))}
+            options={videos?.map((video) => ({ 
+              label: `ID: ${video.id} - ${video.studio}/${video.action}`, 
+              value: video.id 
+            }))}
             onChange={setSelectedVideo}
           />
         </Form.Item>

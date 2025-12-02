@@ -1,51 +1,82 @@
 import { useState } from 'react'
-import { Button, Card, Form, Input, Upload, message } from 'antd'
-import { UploadOutlined } from '@ant-design/icons'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { uploadVideo } from '../api/videos'
+import { Button, Card, Form, Input, InputNumber, message } from 'antd'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { createVideo } from '../api/videos'
+import { fetchCalibrations } from '../api/calibrations'
+import { fetchBackgrounds } from '../api/backgrounds'
 
 const UploadPage = () => {
-  const [file, setFile] = useState<File | null>(null)
   const queryClient = useQueryClient()
+  const { data: calibrations } = useQuery(['calibrations'], fetchCalibrations)
+  const { data: backgrounds } = useQuery(['backgrounds'], fetchBackgrounds)
 
-  const mutation = useMutation(({ videoFile, description }: { videoFile: File; description?: string }) => uploadVideo(videoFile, description), {
+  const mutation = useMutation(createVideo, {
     onSuccess: () => {
-      message.success('上传成功')
-      setFile(null)
+      message.success('视频创建成功')
       queryClient.invalidateQueries(['videos'])
     },
-    onError: () => message.error('上传失败')
+    onError: () => message.error('创建失败')
   })
 
-  const handleSubmit = ({ description }: { description?: string }) => {
-    if (!file) {
-      message.warning('请先选择文件')
-      return
-    }
-    mutation.mutate({ videoFile: file, description })
+  const handleSubmit = (values: any) => {
+    mutation.mutate(values)
   }
 
   return (
-    <Card title="上传视频" style={{ maxWidth: 600 }}>
+    <Card title="创建视频" style={{ maxWidth: 800 }}>
       <Form layout="vertical" onFinish={handleSubmit}>
-        <Form.Item label="视频文件" required>
-          <Upload
-            beforeUpload={(uploadFile) => {
-              setFile(uploadFile)
-              return false
-            }}
-            maxCount={1}
-            fileList={file ? [{ uid: '1', name: file.name, status: 'done' }] : []}
-            onRemove={() => setFile(null)}
-          >
-            <Button icon={<UploadOutlined />}>选择文件</Button>
-          </Upload>
+        <Form.Item label="工作室" name="studio" rules={[{ required: true }]}>
+          <Input />
         </Form.Item>
-        <Form.Item label="描述" name="description">
-          <Input.TextArea rows={3} />
+        <Form.Item label="制片人" name="producer" rules={[{ required: true }]}>
+          <Input />
+        </Form.Item>
+        <Form.Item label="制作" name="production" rules={[{ required: true }]}>
+          <Input />
+        </Form.Item>
+        <Form.Item label="动作" name="action" rules={[{ required: true }]}>
+          <Input />
+        </Form.Item>
+        <Form.Item label="相机数" name="camera_count" rules={[{ required: true }]}>
+          <InputNumber min={1} style={{ width: '100%' }} />
+        </Form.Item>
+        <Form.Item label="主相机编号" name="prime_camera_number" rules={[{ required: true }]}>
+          <InputNumber min={1} style={{ width: '100%' }} />
+        </Form.Item>
+        <Form.Item label="背景" name="background_id" rules={[{ required: true }]}>
+          <InputNumber 
+            min={1} 
+            style={{ width: '100%' }}
+            placeholder="选择背景ID"
+          />
+        </Form.Item>
+        <Form.Item label="标定" name="calibration_id" rules={[{ required: true }]}>
+          <InputNumber 
+            min={1} 
+            style={{ width: '100%' }}
+            placeholder="选择标定ID"
+          />
+        </Form.Item>
+        <Form.Item label="帧数" name="frame_count" rules={[{ required: true }]}>
+          <InputNumber min={1} style={{ width: '100%' }} />
+        </Form.Item>
+        <Form.Item label="帧率" name="frame_rate" rules={[{ required: true }]}>
+          <InputNumber min={0} step={0.1} style={{ width: '100%' }} />
+        </Form.Item>
+        <Form.Item label="宽度" name="frame_width" rules={[{ required: true }]}>
+          <InputNumber min={1} style={{ width: '100%' }} />
+        </Form.Item>
+        <Form.Item label="高度" name="frame_height" rules={[{ required: true }]}>
+          <InputNumber min={1} style={{ width: '100%' }} />
+        </Form.Item>
+        <Form.Item label="视频格式" name="video_format" rules={[{ required: true }]}>
+          <Input placeholder="例如: mp4, avi, mov" />
+        </Form.Item>
+        <Form.Item label="TOS路径" name="tos_path" rules={[{ required: true }]}>
+          <Input placeholder="例如: tos://bucket/path/to/video" />
         </Form.Item>
         <Button type="primary" htmlType="submit" loading={mutation.isLoading}>
-          上传
+          创建视频
         </Button>
       </Form>
     </Card>
