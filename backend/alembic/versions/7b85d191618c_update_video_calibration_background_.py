@@ -27,14 +27,14 @@ def upgrade() -> None:
     inspector = sa.inspect(conn)
     
     # Check and drop collection_time from backgrounds
-    backgrounds_columns = [col['name'] for col in inspector.get_columns('backgrounds')]
-    if 'collection_time' in backgrounds_columns:
-        op.drop_column('backgrounds', 'collection_time')
-    
+    backgrounds_columns = [col["name"] for col in inspector.get_columns("backgrounds")]
+    if "collection_time" in backgrounds_columns:
+        op.drop_column("backgrounds", "collection_time")
+
     # Check and drop collection_time from calibrations
-    calibrations_columns = [col['name'] for col in inspector.get_columns('calibrations')]
-    if 'collection_time' in calibrations_columns:
-        op.drop_column('calibrations', 'collection_time')
+    calibrations_columns = [col["name"] for col in inspector.get_columns("calibrations")]
+    if "collection_time" in calibrations_columns:
+        op.drop_column("calibrations", "collection_time")
     
     # Add new columns to videos table with nullable first, then update and make non-nullable
     # This allows migration even if there's existing data

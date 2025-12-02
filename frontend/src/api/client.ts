@@ -12,4 +12,20 @@ client.interceptors.request.use((config) => {
   return config
 })
 
+// 响应拦截器：处理 401 错误
+client.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      // Token 无效或过期，清除本地存储并跳转到登录页
+      localStorage.removeItem('access_token')
+      // 避免在登录页也触发跳转
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
+    }
+    return Promise.reject(error)
+  }
+)
+
 export default client

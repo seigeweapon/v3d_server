@@ -21,7 +21,7 @@ const AppLayout = () => {
   const navigate = useNavigate()
   
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+  <Layout style={{ minHeight: '100vh' }}>
       <Header style={{ color: '#fff', fontWeight: 600 }}>
         <span
           onClick={() => navigate('/')}
@@ -78,7 +78,7 @@ const AppLayout = () => {
       </Routes>
     </Content>
   </Layout>
-  )
+)
 }
 
 const App = () => (

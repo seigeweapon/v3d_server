@@ -6,7 +6,22 @@ export interface Background {
   camera_count: number
   tos_path: string
   notes?: string
+  status: string
   created_at: string
+  // 仅在创建时返回的预签名上传 URL（PUT 方式，已废弃）
+  upload_url?: string
+  // 仅在创建时返回的 PostObject 表单数据（用于浏览器表单上传，可绕过 CORS）
+  post_form_data?: {
+    action: string
+    fields: {
+      key: string
+      policy: string
+      'x-tos-algorithm': string
+      'x-tos-credential': string
+      'x-tos-date': string
+      'x-tos-signature': string
+    }
+  }
 }
 
 export async function fetchBackgrounds() {
@@ -14,7 +29,7 @@ export async function fetchBackgrounds() {
   return data
 }
 
-export async function createBackground(background: Omit<Background, 'id' | 'owner_id' | 'created_at'>) {
+export async function createBackground(background: Pick<Background, 'camera_count' | 'notes'>) {
   const { data } = await client.post<Background>('/backgrounds/', background)
   return data
 }
@@ -26,6 +41,11 @@ export async function getBackground(id: number) {
 
 export async function deleteBackground(id: number) {
   const { data } = await client.delete(`/backgrounds/${id}`)
+  return data
+}
+
+export async function markBackgroundReady(id: number) {
+  const { data } = await client.post<Background>(`/backgrounds/${id}/ready`)
   return data
 }
 

@@ -5,3 +5,4 @@ python-multipart==0.0.6
 passlib[bcrypt]==1.7.4
 python-jose==3.3.0
 pydantic[email]==1.10.12
+tos==2.8.7
