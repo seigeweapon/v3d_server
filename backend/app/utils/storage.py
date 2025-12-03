@@ -86,6 +86,106 @@ def set_tos_object_content_type(object_key: str, content_type: str) -> None:
         logging.warning(f"设置对象 {object_key} 的 Content-Type 失败: {e}")
 
 
+def list_tos_objects(prefix: str) -> list[str]:
+    """
+    列出 TOS 中指定前缀下的所有对象 key。
+    
+    参考文档：https://www.volcengine.com/docs/6349/173820?lang=zh
+    
+    Args:
+        prefix: 对象 key 的前缀（例如 "fv-data/tests/background/uuid/"）
+    
+    Returns:
+        对象 key 列表
+    """
+    client = get_tos_client()
+    bucket = settings.tos_bucket
+    if not bucket:
+        raise RuntimeError("TOS_BUCKET 未配置")
+    
+    object_keys = []
+    try:
+        # 使用 list_objects_type2 列出对象
+        # 参考文档：https://www.volcengine.com/docs/6349/173820?lang=zh
+        is_truncated = True
+        next_continuation_token = ''
+        
+        while is_truncated:
+            if next_continuation_token:
+                result = client.list_objects_type2(
+                    bucket=bucket,
+                    prefix=prefix,
+                    continuation_token=next_continuation_token,
+                )
+            else:
+                result = client.list_objects_type2(
+                    bucket=bucket,
+                    prefix=prefix,
+                )
+            
+            # 提取对象 key
+            # contents 中返回了指定前缀下的对象
+            if hasattr(result, 'contents') and result.contents:
+                for content in result.contents:
+                    if hasattr(content, 'key'):
+                        object_keys.append(content.key)
+            
+            # 检查是否还有更多对象
+            is_truncated = result.is_truncated if hasattr(result, 'is_truncated') else False
+            if is_truncated:
+                next_continuation_token = result.next_continuation_token if hasattr(result, 'next_continuation_token') else ''
+                if not next_continuation_token:
+                    break
+            else:
+                break
+    except Exception as e:
+        import logging
+        logging.error(f"列出 TOS 对象失败 (prefix={prefix}): {e}")
+        raise
+    
+    return object_keys
+
+
+def delete_tos_object(object_key: str) -> None:
+    """
+    删除 TOS 中的指定对象。
+    
+    Args:
+        object_key: 要删除的对象 key
+    """
+    client = get_tos_client()
+    bucket = settings.tos_bucket
+    if not bucket:
+        raise RuntimeError("TOS_BUCKET 未配置")
+    
+    try:
+        client.delete_object(bucket=bucket, key=object_key)
+    except Exception as e:
+        import logging
+        logging.error(f"删除 TOS 对象失败 (key={object_key}): {e}")
+        raise
+
+
+def delete_tos_objects_by_prefix(prefix: str) -> None:
+    """
+    删除 TOS 中指定前缀下的所有对象。
+    
+    Args:
+        prefix: 对象 key 的前缀（例如 "fv-data/tests/background/uuid/"）
+    """
+    # 先列出所有对象
+    object_keys = list_tos_objects(prefix)
+    
+    # 逐个删除
+    for object_key in object_keys:
+        try:
+            delete_tos_object(object_key)
+        except Exception as e:
+            import logging
+            logging.warning(f"删除对象 {object_key} 失败，继续删除其他对象: {e}")
+            # 继续删除其他对象，不中断流程
+
+
 def generate_tos_post_form_data(object_key: str, content_type: Optional[str] = None, expires: int = 3600) -> dict:
     """
     为指定对象 key 生成 TOS PostObject 表单数据（用于浏览器表单上传，可绕过 CORS）。

@@ -10,7 +10,7 @@ from app.database import get_db
 from app.models.user import User
 from app.models.background import Background
 from app.schemas.background import BackgroundCreate, BackgroundRead
-from app.utils.storage import generate_tos_post_form_data, set_tos_object_content_type
+from app.utils.storage import generate_tos_post_form_data, set_tos_object_content_type, delete_tos_objects_by_prefix
 
 router = APIRouter(prefix="/backgrounds", tags=["backgrounds"])
 
@@ -177,12 +177,45 @@ def delete_background(
     db: Session = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user),
 ):
+    """
+    删除背景记录，同时删除 TOS 上的所有相关文件。
+    """
     background = db.query(Background).filter(
         Background.id == background_id,
         Background.owner_id == current_user.id
     ).first()
     if not background:
         raise HTTPException(status_code=404, detail="Background not found")
+    
+    # 从 tos_path 中提取路径前缀（去掉 tos://bucket/ 前缀）
+    # tos_path 格式: tos://{bucket}/{prefix}/{uuid}
+    tos_path = background.tos_path
+    if tos_path.startswith("tos://"):
+        path_without_schema = tos_path[6:]  # 去掉 "tos://"
+        # 提取 bucket 后面的路径
+        if "/" in path_without_schema:
+            bucket, path_after_bucket = path_without_schema.split("/", 1)
+            uuid_path = path_after_bucket
+        else:
+            raise HTTPException(status_code=400, detail="Invalid tos_path format")
+    else:
+        uuid_path = tos_path
+    
+    # 确保路径以 / 结尾，以便列出该目录下的所有文件
+    prefix = uuid_path.rstrip("/") + "/"
+    
+    # 删除 TOS 上的所有文件
+    try:
+        delete_tos_objects_by_prefix(prefix)
+    except Exception as e:
+        # 记录错误，但继续删除数据库记录
+        import logging
+        logging.error(f"删除 TOS 文件失败 (prefix={prefix}): {e}")
+        # 可以选择抛出异常或继续执行，这里选择继续执行
+        # 如果希望严格处理，可以取消下面的注释：
+        # raise HTTPException(status_code=500, detail=f"Failed to delete TOS files: {str(e)}")
+    
+    # 删除数据库记录
     db.delete(background)
     db.commit()
     return {"ok": True}

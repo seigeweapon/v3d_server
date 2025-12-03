@@ -1,10 +1,35 @@
-import { Card, Table, Row, Col, Button, Modal, Input, message, Tag } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { Card, Table, Row, Col, Button, Modal, Input, message, Tag, Popconfirm } from 'antd'
+import { PlusOutlined, CopyOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { fetchVideos, Video } from '../api/videos'
-import { fetchBackgrounds, Background, createBackground, markBackgroundReady, setBackgroundContentType } from '../api/backgrounds'
+import { fetchBackgrounds, Background, createBackground, markBackgroundReady, setBackgroundContentType, deleteBackground } from '../api/backgrounds'
 import { fetchCalibrations, Calibration } from '../api/calibrations'
 import { useRef, useEffect, useState } from 'react'
+
+// 格式化时间为本地时间：YYYY-MM-DD hh:mm:ss
+// 后端返回的时间是UTC时间但没有时区标识，需要明确按UTC解析后再转换为本地时间
+const formatLocalDateTime = (dateString: string): string => {
+  if (!dateString) return '-'
+  
+  // 如果字符串没有时区信息（没有Z或+/-时区），则添加Z表示UTC时间
+  let utcString = dateString
+  if (!dateString.includes('Z') && !dateString.match(/[+-]\d{2}:\d{2}$/)) {
+    // 直接在末尾添加Z表示UTC时间（保留微秒部分）
+    utcString = dateString + 'Z'
+  }
+  
+  const date = new Date(utcString)
+  // 检查日期是否有效
+  if (isNaN(date.getTime())) return '-'
+  // 使用本地时间方法获取各个时间组件（这些方法会自动处理时区转换）
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  const seconds = String(date.getSeconds()).padStart(2, '0')
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+}
 
 const VideosPage = () => {
   const videoTableRef = useRef<HTMLDivElement>(null)
@@ -34,6 +59,24 @@ const VideosPage = () => {
     {
       staleTime: 5 * 60 * 1000,
       refetchOnMount: false,
+    }
+  )
+
+  const deleteBackgroundMutation = useMutation(
+    async (backgroundId: number) => {
+      await deleteBackground(backgroundId)
+    },
+    {
+      onSuccess: () => {
+        message.success('删除成功')
+        queryClient.invalidateQueries(['backgrounds'])
+        queryClient.refetchQueries(['backgrounds'])
+      },
+      onError: (error: any) => {
+        const errorMessage = error?.response?.data?.detail || error?.message || '删除失败'
+        message.error(`删除失败: ${errorMessage}`)
+        console.error('删除背景数据失败:', error)
+      }
     }
   )
 
@@ -215,6 +258,29 @@ const VideosPage = () => {
     setNotesInput('')
   }
 
+  // 复制 TOS 路径到剪贴板
+  const handleCopyTosPath = async (tosPath: string) => {
+    try {
+      await navigator.clipboard.writeText(tosPath)
+      message.success('已复制到剪贴板')
+    } catch (err) {
+      // 降级方案：使用传统方法
+      const textArea = document.createElement('textarea')
+      textArea.value = tosPath
+      textArea.style.position = 'fixed'
+      textArea.style.opacity = '0'
+      document.body.appendChild(textArea)
+      textArea.select()
+      try {
+        document.execCommand('copy')
+        message.success('已复制到剪贴板')
+      } catch (e) {
+        message.error('复制失败')
+      }
+      document.body.removeChild(textArea)
+    }
+  }
+
   const videoColumns = [
     { title: 'ID', dataIndex: 'id', width: 80 },
     { title: '工作室', dataIndex: 'studio' },
@@ -230,15 +296,36 @@ const VideosPage = () => {
     { title: '宽度', dataIndex: 'frame_width', width: 100 },
     { title: '高度', dataIndex: 'frame_height', width: 100 },
     { title: '视频格式', dataIndex: 'video_format', width: 120 },
-    { title: 'TOS路径', dataIndex: 'tos_path', ellipsis: true },
-    { title: '创建时间', dataIndex: 'created_at', width: 180 },
+    {
+      title: 'TOS路径',
+      dataIndex: 'tos_path',
+      ellipsis: true,
+      render: (tosPath: string) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{tosPath || '-'}</span>
+          {tosPath && (
+            <Button
+              type="text"
+              size="small"
+              icon={<CopyOutlined />}
+              onClick={() => handleCopyTosPath(tosPath)}
+              style={{ flexShrink: 0 }}
+            />
+          )}
+        </div>
+      ),
+    },
+    {
+      title: '创建时间',
+      dataIndex: 'created_at',
+      width: 180,
+      render: (created_at: string) => formatLocalDateTime(created_at),
+    },
   ]
 
   const backgroundColumns = [
     { title: 'ID', dataIndex: 'id', width: 80 },
     { title: '相机数', dataIndex: 'camera_count', width: 100 },
-    { title: 'TOS路径', dataIndex: 'tos_path', ellipsis: true },
-    { title: '备注', dataIndex: 'notes', ellipsis: true },
     {
       title: '状态',
       dataIndex: 'status',
@@ -249,15 +336,89 @@ const VideosPage = () => {
         return <Tag color={color}>{text}</Tag>
       },
     },
-    { title: '创建时间', dataIndex: 'created_at', width: 180 },
+    { title: '备注', dataIndex: 'notes', ellipsis: true },
+    {
+      title: 'TOS路径',
+      dataIndex: 'tos_path',
+      ellipsis: true,
+      render: (tosPath: string) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{tosPath || '-'}</span>
+          {tosPath && (
+            <Button
+              type="text"
+              size="small"
+              icon={<CopyOutlined />}
+              onClick={() => handleCopyTosPath(tosPath)}
+              style={{ flexShrink: 0 }}
+            />
+          )}
+        </div>
+      ),
+    },
+    {
+      title: '创建时间',
+      dataIndex: 'created_at',
+      width: 180,
+      render: (created_at: string) => formatLocalDateTime(created_at),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 100,
+      fixed: 'right' as const,
+      render: (_: any, record: Background) => (
+        <Popconfirm
+          title="确定要删除这条背景数据吗？"
+          description="删除后将同时删除 TOS 上的所有相关文件，此操作不可恢复。"
+          onConfirm={() => deleteBackgroundMutation.mutate(record.id)}
+          okText="确定"
+          cancelText="取消"
+          okButtonProps={{ danger: true }}
+        >
+          <Button
+            type="text"
+            danger
+            icon={<DeleteOutlined />}
+            size="small"
+            loading={deleteBackgroundMutation.isLoading}
+          >
+            删除
+          </Button>
+        </Popconfirm>
+      ),
+    },
   ]
 
   const calibrationColumns = [
     { title: 'ID', dataIndex: 'id', width: 80 },
     { title: '相机数', dataIndex: 'camera_count', width: 100 },
-    { title: 'TOS路径', dataIndex: 'tos_path', ellipsis: true },
+    {
+      title: 'TOS路径',
+      dataIndex: 'tos_path',
+      ellipsis: true,
+      render: (tosPath: string) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{tosPath || '-'}</span>
+          {tosPath && (
+            <Button
+              type="text"
+              size="small"
+              icon={<CopyOutlined />}
+              onClick={() => handleCopyTosPath(tosPath)}
+              style={{ flexShrink: 0 }}
+            />
+          )}
+        </div>
+      ),
+    },
     { title: '备注', dataIndex: 'notes', ellipsis: true },
-    { title: '创建时间', dataIndex: 'created_at', width: 180 },
+    {
+      title: '创建时间',
+      dataIndex: 'created_at',
+      width: 180,
+      render: (created_at: string) => formatLocalDateTime(created_at),
+    },
   ]
 
   return (
