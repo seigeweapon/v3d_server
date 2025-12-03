@@ -1,4 +1,4 @@
-import { Card, Table, Row, Col, Button, Modal, Input, message, Tag, Popconfirm } from 'antd'
+import { Card, Table, Row, Col, Button, Modal, Input, message, Tag, Popconfirm, Progress, Tooltip } from 'antd'
 import { PlusOutlined, CopyOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { fetchVideos, Video } from '../api/videos'
@@ -38,6 +38,12 @@ const VideosPage = () => {
   const [notesInput, setNotesInput] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
+  const [uploadProgress, setUploadProgress] = useState<{
+    visible: boolean
+    current: number
+    total: number
+    currentFile: string
+  } | null>(null)
 
   const { data: videos, isLoading: videosLoading } = useQuery<Video[]>(['videos'], fetchVideos, {
     staleTime: 5 * 60 * 1000,
@@ -109,11 +115,25 @@ const VideosPage = () => {
       }
 
       // 第二步：使用 PostObject 表单上传所有文件到 TOS（可绕过 CORS）
+      // 显示上传进度 Modal
+      setUploadProgress({
+        visible: true,
+        current: 0,
+        total: files.length,
+        currentFile: ''
+      })
+
       // 循环上传每个文件
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
         const postFormData = created.post_form_data_list[i]
         const { action, fields } = postFormData
+
+        // 更新当前上传的文件名
+        setUploadProgress(prev => prev ? {
+          ...prev,
+          currentFile: file.name
+        } : null)
 
         // 使用 FormData 构建表单数据
         const formData = new FormData()
@@ -153,6 +173,12 @@ const VideosPage = () => {
         if (!uploadSuccess) {
           throw new Error(`文件 ${file.name} 上传到 TOS 失败`)
         }
+
+        // 更新上传进度
+        setUploadProgress(prev => prev ? {
+          ...prev,
+          current: prev.current + 1
+        } : null)
       }
 
       // 第三步：通知后端上传已完成，将状态标记为 ready
@@ -161,6 +187,8 @@ const VideosPage = () => {
     },
     {
       onSuccess: () => {
+        // 关闭上传进度 Modal
+        setUploadProgress(null)
         message.success('背景数据创建并上传成功')
         // 刷新背景列表
         queryClient.invalidateQueries(['backgrounds'])
@@ -169,6 +197,8 @@ const VideosPage = () => {
         setNotesInput('')
       },
       onError: (error: any) => {
+        // 关闭上传进度 Modal
+        setUploadProgress(null)
         const errorMessage = error?.response?.data?.detail || error?.message || '创建失败'
         message.error(`创建失败: ${errorMessage}`)
         console.error('创建背景数据失败:', error)
@@ -287,7 +317,11 @@ const VideosPage = () => {
       ellipsis: true,
       render: (tosPath: string) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{tosPath || '-'}</span>
+          <Tooltip title={tosPath || '-'} placement="topLeft">
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {tosPath || '-'}
+            </span>
+          </Tooltip>
           {tosPath && (
             <Button
               type="text"
@@ -321,14 +355,29 @@ const VideosPage = () => {
         return <Tag color={color}>{text}</Tag>
       },
     },
-    { title: '备注', dataIndex: 'notes', ellipsis: true },
+    {
+      title: '备注',
+      dataIndex: 'notes',
+      ellipsis: true,
+      render: (notes: string) => (
+        <Tooltip title={notes || '-'} placement="topLeft">
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+            {notes || '-'}
+          </span>
+        </Tooltip>
+      ),
+    },
     {
       title: 'TOS路径',
       dataIndex: 'tos_path',
       ellipsis: true,
       render: (tosPath: string) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{tosPath || '-'}</span>
+          <Tooltip title={tosPath || '-'} placement="topLeft">
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {tosPath || '-'}
+            </span>
+          </Tooltip>
           {tosPath && (
             <Button
               type="text"
@@ -384,7 +433,11 @@ const VideosPage = () => {
       ellipsis: true,
       render: (tosPath: string) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{tosPath || '-'}</span>
+          <Tooltip title={tosPath || '-'} placement="topLeft">
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {tosPath || '-'}
+            </span>
+          </Tooltip>
           {tosPath && (
             <Button
               type="text"
@@ -397,7 +450,18 @@ const VideosPage = () => {
         </div>
       ),
     },
-    { title: '备注', dataIndex: 'notes', ellipsis: true },
+    {
+      title: '备注',
+      dataIndex: 'notes',
+      ellipsis: true,
+      render: (notes: string) => (
+        <Tooltip title={notes || '-'} placement="topLeft">
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+            {notes || '-'}
+          </span>
+        </Tooltip>
+      ),
+    },
     {
       title: '创建时间',
       dataIndex: 'created_at',
@@ -482,6 +546,31 @@ const VideosPage = () => {
         style={{ display: 'none' }}
         onChange={handleFileChange}
       />
+
+      {/* 上传进度 Modal */}
+      <Modal
+        title="上传文件"
+        open={uploadProgress?.visible || false}
+        closable={false}
+        footer={null}
+        maskClosable={false}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <Progress
+            percent={uploadProgress ? Math.round((uploadProgress.current / uploadProgress.total) * 100) : 0}
+            status="active"
+            format={(percent) => `${percent}%`}
+          />
+        </div>
+        <div style={{ marginTop: 16 }}>
+          <p style={{ margin: 0, color: '#666' }}>
+            {uploadProgress?.currentFile ? `正在上传: ${uploadProgress.currentFile}` : '准备上传...'}
+          </p>
+          <p style={{ margin: '8px 0 0 0', color: '#999', fontSize: '12px' }}>
+            {uploadProgress ? `${uploadProgress.current} / ${uploadProgress.total} 个文件` : ''}
+          </p>
+        </div>
+      </Modal>
     </div>
   )
 }
