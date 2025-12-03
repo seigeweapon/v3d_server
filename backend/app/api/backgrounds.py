@@ -158,19 +158,39 @@ def delete_background(
     # 确保路径以 / 结尾，以便列出该目录下的所有文件
     prefix = uuid_path.rstrip("/") + "/"
     
-    # 删除 TOS 上的所有文件
+    # 删除操作：先删除 TOS 文件，再删除数据库记录
+    # 将两个操作分开处理，确保能正确区分 TOS 操作失败和数据库操作失败
+    
+    # 第一步：删除 TOS 上的所有文件
+    # 如果失败，抛出异常，阻止数据库记录的删除，避免产生孤儿文件
     try:
         delete_tos_objects_by_prefix(prefix)
-    except Exception as e:
-        # 记录错误，但继续删除数据库记录
+    except RuntimeError as e:
+        # TOS 文件删除失败（包括列出对象失败和删除对象失败）
+        # 阻止数据库记录删除，确保数据一致性
         import logging
         logging.error(f"删除 TOS 文件失败 (prefix={prefix}): {e}")
-        # 可以选择抛出异常或继续执行，这里选择继续执行
-        # 如果希望严格处理，可以取消下面的注释：
-        # raise HTTPException(status_code=500, detail=f"Failed to delete TOS files: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"删除 TOS 文件失败: {str(e)}。数据库记录未删除，请稍后重试。"
+        )
     
-    # 删除数据库记录
-    db.delete(background)
-    db.commit()
+    # 第二步：只有在 TOS 文件删除成功后才删除数据库记录
+    # 单独处理数据库操作异常，避免与 TOS 操作异常混淆
+    try:
+        db.delete(background)
+        db.commit()
+    except Exception as e:
+        # 数据库操作失败
+        # 注意：此时 TOS 文件已被删除，但数据库记录删除失败
+        import logging
+        logging.error(f"删除数据库记录失败 (background_id={background_id}): {e}")
+        # 回滚数据库事务（如果还在事务中）
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"删除数据库记录失败: {str(e)}。TOS 文件已被删除，请检查并手动清理数据库记录。"
+        )
+    
     return {"ok": True}
 

@@ -108,10 +108,12 @@ def list_tos_objects(prefix: str) -> list[str]:
     try:
         # 使用 list_objects_type2 列出对象
         # 参考文档：https://www.volcengine.com/docs/6349/173820?lang=zh
+        # 注意：TOS 一次最多返回 1000 个对象，如果超过需要分页处理
         is_truncated = True
-        next_continuation_token = ''
+        next_continuation_token = None
         
         while is_truncated:
+            # 第一次调用不使用 continuation_token，后续调用使用 token 进行分页
             if next_continuation_token:
                 result = client.list_objects_type2(
                     bucket=bucket,
@@ -131,13 +133,21 @@ def list_tos_objects(prefix: str) -> list[str]:
                     if hasattr(content, 'key'):
                         object_keys.append(content.key)
             
-            # 检查是否还有更多对象
-            is_truncated = result.is_truncated if hasattr(result, 'is_truncated') else False
+            # 检查是否还有更多对象需要分页获取
+            is_truncated = getattr(result, 'is_truncated', False)
             if is_truncated:
-                next_continuation_token = result.next_continuation_token if hasattr(result, 'next_continuation_token') else ''
+                # 如果还有更多对象，获取 continuation_token 用于下次请求
+                next_continuation_token = getattr(result, 'next_continuation_token', None)
                 if not next_continuation_token:
+                    # 如果 is_truncated 为 True 但没有 continuation_token，记录警告
+                    import logging
+                    logging.warning(
+                        f"TOS 返回 is_truncated=True 但未提供 next_continuation_token "
+                        f"(prefix={prefix})，可能无法获取所有对象"
+                    )
                     break
             else:
+                # 没有更多对象了，退出循环
                 break
     except Exception as e:
         import logging
@@ -173,18 +183,42 @@ def delete_tos_objects_by_prefix(prefix: str) -> None:
     
     Args:
         prefix: 对象 key 的前缀（例如 "fv-data/tests/background/uuid/"）
+    
+    Raises:
+        RuntimeError: 如果列出对象失败或任何对象删除失败，抛出异常以确保数据一致性
     """
     # 先列出所有对象
-    object_keys = list_tos_objects(prefix)
+    # 如果列出失败，捕获异常并重新抛出为 RuntimeError，确保调用者能正确识别为 TOS 操作失败
+    try:
+        object_keys = list_tos_objects(prefix)
+    except Exception as e:
+        import logging
+        logging.error(f"列出 TOS 对象失败 (prefix={prefix}): {e}")
+        # 重新抛出为 RuntimeError，确保调用者能正确识别为 TOS 操作失败
+        raise RuntimeError(f"列出 TOS 对象失败: {str(e)}") from e
     
-    # 逐个删除
+    # 逐个删除，跟踪失败的对象
+    failed_keys = []
     for object_key in object_keys:
         try:
             delete_tos_object(object_key)
         except Exception as e:
             import logging
-            logging.warning(f"删除对象 {object_key} 失败，继续删除其他对象: {e}")
-            # 继续删除其他对象，不中断流程
+            logging.error(f"删除对象 {object_key} 失败: {e}")
+            failed_keys.append(object_key)
+            # 继续删除其他对象，但记录失败
+    
+    # 如果有任何对象删除失败，抛出异常以确保数据一致性
+    # 这样调用者可以阻止数据库记录的删除，避免产生孤儿文件
+    if failed_keys:
+        import logging
+        error_msg = (
+            f"删除 TOS 对象失败: 共 {len(failed_keys)} 个对象删除失败 "
+            f"(总共 {len(object_keys)} 个对象)。失败的对象: {failed_keys[:10]}"  # 只显示前10个
+            + (f" 等共 {len(failed_keys)} 个" if len(failed_keys) > 10 else "")
+        )
+        logging.error(error_msg)
+        raise RuntimeError(error_msg)
 
 
 def generate_tos_post_form_data(object_key: str, content_type: Optional[str] = None, expires: int = 3600) -> dict:
