@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.database import get_db
 from app.models.user import User
 from app.models.background import Background
-from app.schemas.background import BackgroundCreate, BackgroundRead
+from app.schemas.background import BackgroundCreate, BackgroundRead, BackgroundUpdate
 from app.utils.storage import generate_tos_post_form_data, delete_tos_objects_by_prefix
 
 router = APIRouter(prefix="/backgrounds", tags=["backgrounds"])
@@ -122,6 +122,31 @@ def get_background(
     ).first()
     if not background:
         raise HTTPException(status_code=404, detail="Background not found")
+    return background
+
+
+@router.patch("/{background_id}", response_model=BackgroundRead)
+def update_background(
+    background_id: int,
+    background_update: BackgroundUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """更新背景记录的备注信息。"""
+    background = db.query(Background).filter(
+        Background.id == background_id,
+        Background.owner_id == current_user.id
+    ).first()
+    if not background:
+        raise HTTPException(status_code=404, detail="Background not found")
+    
+    # 更新备注
+    if background_update.notes is not None:
+        background.notes = background_update.notes
+    
+    db.add(background)
+    db.commit()
+    db.refresh(background)
     return background
 
 

@@ -1,10 +1,10 @@
-import { Card, Table, Row, Col, Button, Modal, Input, message, Tag, Popconfirm, Progress, Tooltip } from 'antd'
-import { PlusOutlined, CopyOutlined, DeleteOutlined } from '@ant-design/icons'
+import { Card, Table, Row, Col, Button, Modal, Input, message, Tag, Popconfirm, Progress, Tooltip, Space } from 'antd'
+import { PlusOutlined, CopyOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { fetchVideos, Video } from '../api/videos'
-import { fetchBackgrounds, Background, createBackground, markBackgroundReady, deleteBackground } from '../api/backgrounds'
+import { fetchBackgrounds, Background, createBackground, markBackgroundReady, deleteBackground, updateBackgroundNotes } from '../api/backgrounds'
 import { fetchCalibrations, Calibration } from '../api/calibrations'
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, useMemo } from 'react'
 
 // 格式化时间为本地时间：YYYY-MM-DD hh:mm:ss
 // 后端返回的时间是UTC时间但没有时区标识，需要明确按UTC解析后再转换为本地时间
@@ -44,6 +44,10 @@ const VideosPage = () => {
     total: number
     currentFile: string
   } | null>(null)
+  const [backgroundFilterKeyword, setBackgroundFilterKeyword] = useState<string>('')
+  const [editNotesModalVisible, setEditNotesModalVisible] = useState(false)
+  const [editingBackground, setEditingBackground] = useState<Background | null>(null)
+  const [editNotesInput, setEditNotesInput] = useState('')
 
   const { data: videos, isLoading: videosLoading } = useQuery<Video[]>(['videos'], fetchVideos, {
     staleTime: 5 * 60 * 1000,
@@ -58,6 +62,18 @@ const VideosPage = () => {
       refetchOnMount: false,
     }
   )
+
+  // 根据关键字过滤背景数据（匹配备注字段）
+  const filteredBackgrounds = useMemo(() => {
+    if (!backgrounds) return []
+    if (!backgroundFilterKeyword.trim()) return backgrounds
+    
+    const keyword = backgroundFilterKeyword.trim().toLowerCase()
+    return backgrounds.filter(background => {
+      const notes = background.notes || ''
+      return notes.toLowerCase().includes(keyword)
+    })
+  }, [backgrounds, backgroundFilterKeyword])
 
   const { data: calibrations, isLoading: calibrationsLoading } = useQuery<Calibration[]>(
     ['calibrations'],
@@ -82,6 +98,27 @@ const VideosPage = () => {
         const errorMessage = error?.response?.data?.detail || error?.message || '删除失败'
         message.error(`删除失败: ${errorMessage}`)
         console.error('删除背景数据失败:', error)
+      }
+    }
+  )
+
+  const updateBackgroundNotesMutation = useMutation(
+    async (payload: { id: number; notes: string }) => {
+      await updateBackgroundNotes(payload.id, payload.notes)
+    },
+    {
+      onSuccess: () => {
+        message.success('备注更新成功')
+        queryClient.invalidateQueries(['backgrounds'])
+        queryClient.refetchQueries(['backgrounds'])
+        setEditNotesModalVisible(false)
+        setEditingBackground(null)
+        setEditNotesInput('')
+      },
+      onError: (error: any) => {
+        const errorMessage = error?.response?.data?.detail || error?.message || '更新失败'
+        message.error(`更新失败: ${errorMessage}`)
+        console.error('更新备注失败:', error)
       }
     }
   )
@@ -273,6 +310,26 @@ const VideosPage = () => {
     setNotesInput('')
   }
 
+  const handleEditNotes = (background: Background) => {
+    setEditingBackground(background)
+    setEditNotesInput(background.notes || '')
+    setEditNotesModalVisible(true)
+  }
+
+  const handleEditNotesModalOk = () => {
+    if (!editingBackground) return
+    updateBackgroundNotesMutation.mutate({
+      id: editingBackground.id,
+      notes: editNotesInput.trim()
+    })
+  }
+
+  const handleEditNotesModalCancel = () => {
+    setEditNotesModalVisible(false)
+    setEditingBackground(null)
+    setEditNotesInput('')
+  }
+
   // 复制 TOS 路径到剪贴板
   const handleCopyTosPath = async (tosPath: string) => {
     try {
@@ -359,12 +416,21 @@ const VideosPage = () => {
       title: '备注',
       dataIndex: 'notes',
       ellipsis: true,
-      render: (notes: string) => (
-        <Tooltip title={notes || '-'} placement="topLeft">
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
-            {notes || '-'}
-          </span>
-        </Tooltip>
+      render: (notes: string, record: Background) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Tooltip title={notes || '-'} placement="topLeft">
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {notes || '-'}
+            </span>
+          </Tooltip>
+          <Button
+            type="text"
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => handleEditNotes(record)}
+            style={{ flexShrink: 0 }}
+          />
+        </div>
       ),
     },
     {
@@ -487,18 +553,27 @@ const VideosPage = () => {
           <Card
             title="背景列表"
             extra={
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={handleAddBackground}
-              >
-                添加
-              </Button>
+              <Space>
+                <Input.Search
+                  placeholder="搜索备注"
+                  allowClear
+                  value={backgroundFilterKeyword}
+                  onChange={(e) => setBackgroundFilterKeyword(e.target.value)}
+                  style={{ width: 200 }}
+                />
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={handleAddBackground}
+                >
+                  添加
+                </Button>
+              </Space>
             }
           >
             <Table
               loading={backgroundsLoading}
-              dataSource={backgrounds}
+              dataSource={filteredBackgrounds}
               columns={backgroundColumns}
               rowKey="id"
               scroll={{ y: tableHeight, x: 600 }}
@@ -535,6 +610,25 @@ const VideosPage = () => {
           onChange={(e) => setNotesInput(e.target.value)}
           onPressEnter={handleNotesModalOk}
           autoFocus
+        />
+      </Modal>
+
+      {/* 编辑备注对话框 */}
+      <Modal
+        title="编辑备注"
+        open={editNotesModalVisible}
+        onOk={handleEditNotesModalOk}
+        onCancel={handleEditNotesModalCancel}
+        okText="确定"
+        cancelText="取消"
+        confirmLoading={updateBackgroundNotesMutation.isLoading}
+      >
+        <Input.TextArea
+          placeholder="请输入备注"
+          value={editNotesInput}
+          onChange={(e) => setEditNotesInput(e.target.value)}
+          autoFocus
+          rows={4}
         />
       </Modal>
 

@@ -14,6 +14,10 @@ class BackgroundCreate(BackgroundBase):
     file_infos: Optional[List[Dict[str, str]]] = None  # 格式: [{"name": "file1.png", "type": "image/png"}, ...]
 
 
+class BackgroundUpdate(BaseModel):
+    notes: Optional[str] = None
+
+
 class BackgroundRead(BaseModel):
     camera_count: int
     tos_path: str
