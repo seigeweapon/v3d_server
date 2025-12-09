@@ -53,15 +53,3 @@ export async function markBackgroundReady(id: number) {
   const { data } = await client.post<Background>(`/backgrounds/${id}/ready`)
   return data
 }
-
-export async function setBackgroundContentType(
-  id: number,
-  fileContentTypes: Record<string, string> // 格式: {"filename1.png": "image/png", ...}
-) {
-  const { data } = await client.post<{ results: Array<{ filename: string; status: string; error?: string }> }>(
-    `/backgrounds/${id}/set-content-type`,
-    fileContentTypes
-  )
-  return data
-}
-

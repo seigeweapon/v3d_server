@@ -10,7 +10,7 @@ from app.database import get_db
 from app.models.user import User
 from app.models.background import Background
 from app.schemas.background import BackgroundCreate, BackgroundRead
-from app.utils.storage import generate_tos_post_form_data, set_tos_object_content_type, delete_tos_objects_by_prefix
+from app.utils.storage import generate_tos_post_form_data, delete_tos_objects_by_prefix
 
 router = APIRouter(prefix="/backgrounds", tags=["backgrounds"])
 
@@ -108,52 +108,6 @@ def mark_background_ready(
     db.commit()
     db.refresh(background)
     return background
-
-
-@router.post("/{background_id}/set-content-type")
-def set_background_content_type(
-    background_id: int,
-    file_content_types: dict,  # 格式: {"filename1.png": "image/png", "filename2.jpg": "image/jpeg"}
-    db: Session = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user),
-):
-    """
-    设置背景数据中所有文件的 Content-Type。
-    file_content_types: 文件名到 Content-Type 的映射字典
-    """
-    background = (
-        db.query(Background)
-        .filter(Background.id == background_id, Background.owner_id == current_user.id)
-        .first()
-    )
-    if not background:
-        raise HTTPException(status_code=404, detail="Background not found")
-    
-    # 从 tos_path 中提取路径前缀（去掉 tos://bucket/ 前缀）
-    # tos_path 格式: tos://{bucket}/{prefix}/{uuid}
-    tos_path = background.tos_path
-    if tos_path.startswith("tos://"):
-        path_without_schema = tos_path[6:]  # 去掉 "tos://"
-        # 提取 bucket 后面的路径
-        if "/" in path_without_schema:
-            bucket, path_after_bucket = path_without_schema.split("/", 1)
-            uuid_path = path_after_bucket
-        else:
-            raise HTTPException(status_code=400, detail="Invalid tos_path format")
-    else:
-        uuid_path = tos_path
-    
-    # 为每个文件设置 Content-Type
-    results = []
-    for filename, content_type in file_content_types.items():
-        object_key = f"{uuid_path}/{filename}"
-        try:
-            set_tos_object_content_type(object_key, content_type)
-            results.append({"filename": filename, "status": "success"})
-        except Exception as e:
-            results.append({"filename": filename, "status": "error", "error": str(e)})
-    
-    return {"results": results}
 
 
 @router.get("/{background_id}", response_model=BackgroundRead)

@@ -2,7 +2,7 @@ import { Card, Table, Row, Col, Button, Modal, Input, message, Tag, Popconfirm }
 import { PlusOutlined, CopyOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { fetchVideos, Video } from '../api/videos'
-import { fetchBackgrounds, Background, createBackground, markBackgroundReady, setBackgroundContentType, deleteBackground } from '../api/backgrounds'
+import { fetchBackgrounds, Background, createBackground, markBackgroundReady, deleteBackground } from '../api/backgrounds'
 import { fetchCalibrations, Calibration } from '../api/calibrations'
 import { useRef, useEffect, useState } from 'react'
 
@@ -155,22 +155,7 @@ const VideosPage = () => {
         }
       }
 
-      // 第三步：设置所有文件的 Content-Type
-      // 构建文件名到 Content-Type 的映射
-      const fileContentTypes: Record<string, string> = {}
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i]
-        fileContentTypes[file.name] = file.type || 'application/octet-stream'
-      }
-      
-      try {
-        await setBackgroundContentType(created.id, fileContentTypes)
-      } catch (error: any) {
-        // 设置 Content-Type 失败不影响主流程，只记录警告
-        console.warn('设置 Content-Type 失败（不影响上传）:', error)
-      }
-
-      // 第四步：通知后端上传已完成，将状态标记为 ready
+      // 第三步：通知后端上传已完成，将状态标记为 ready
       const ready = await markBackgroundReady(created.id)
       return ready
     },

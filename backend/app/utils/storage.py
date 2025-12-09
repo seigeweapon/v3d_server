@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import BinaryIO, Optional
 
 import tos
+from tos.models2 import PolicySignatureCondition
 
 from app.core.config import settings
 
@@ -201,10 +202,14 @@ def generate_tos_post_form_data(object_key: str, content_type: Optional[str] = N
         raise RuntimeError("TOS_BUCKET 未配置")
 
     # 生成 PostObject 预签名
-    # 注意：conditions 需要是特定结构，这里不额外添加限制条件，直接传空列表即可，
-    # bucket 和 key 通过参数单独传入即可由 SDK 生成合法的 policy。
+    # 如需在上传时写入 Content-Type，必须在 policy.conditions 中声明同样的字段。
+    # TOS SDK 期望 conditions 为字典列表，例如 {"Content-Type": "image/png"}。
+    conditions = []
+    if content_type:
+        conditions.append(PolicySignatureCondition(key="Content-Type", value=content_type))
+
     result = client.pre_signed_post_signature(
-        conditions=[],
+        conditions=conditions,
         bucket=bucket,
         key=object_key,
         expires=expires,
@@ -229,15 +234,10 @@ def generate_tos_post_form_data(object_key: str, content_type: Optional[str] = N
         "x-tos-date": result.date,
         "x-tos-signature": result.signature,
     }
-    
-    # 注意：Content-Type 如果要在 PostObject 中使用，需要在 policy 的 conditions 中声明
-    # 但 TOS SDK 的 conditions 参数格式可能不支持直接添加 Content-Type
-    # 暂时不添加 Content-Type，避免导致签名验证失败
-    # 如果需要设置 Content-Type，可以考虑：
-    # 1. 使用 PUT 方式上传（需要 CORS 配置）
-    # 2. 或者在上传后通过 set_object_meta 设置元数据
-    # if content_type:
-    #     fields["Content-Type"] = content_type
+
+    # 携带 Content-Type，使对象在上传时即写入正确元数据
+    if content_type:
+        fields["Content-Type"] = content_type
 
     # 返回表单数据
     return {
