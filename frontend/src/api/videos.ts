@@ -58,6 +58,13 @@ export async function uploadVideo(
     producer: string
     production: string
     action: string
+    camera_count?: number
+    prime_camera_number?: number
+    frame_count?: number
+    frame_rate?: number
+    frame_width?: number
+    frame_height?: number
+    video_format?: string
     file_infos?: Array<{ name: string; type: string }>
   }
 ) {
@@ -72,5 +79,38 @@ export async function markVideoReady(id: number) {
 
 export async function markVideoFailed(id: number) {
   const { data } = await client.post<Video>(`/videos/${id}/failed`)
+  return data
+}
+
+export async function updateVideo(
+  id: number,
+  updates: {
+    studio?: string
+    producer?: string
+    production?: string
+    action?: string
+  }
+) {
+  const { data } = await client.patch<Video>(`/videos/${id}`, updates)
+  return data
+}
+
+export interface VideoMetadata {
+  duration: number
+  width: number
+  height: number
+  frame_rate: number
+  frame_count: number
+  format: string
+}
+
+export async function extractVideoMetadata(file: File): Promise<VideoMetadata> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const { data } = await client.post<VideoMetadata>('/videos/extract-metadata', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
   return data
 }

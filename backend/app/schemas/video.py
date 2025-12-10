@@ -30,9 +30,25 @@ class VideoUpload(BaseModel):
     producer: str
     production: str
     action: str
+    camera_count: Optional[int] = None  # 相机数（视频文件数量），如果不提供则从 file_infos 中推断
+    # 视频元数据（从前端读取）
+    frame_count: Optional[int] = None
+    frame_rate: Optional[float] = None
+    frame_width: Optional[int] = None
+    frame_height: Optional[int] = None
+    video_format: Optional[str] = None
+    prime_camera_number: Optional[int] = None  # 主相机编号，默认为1
     # 文件信息列表，包含文件名和 MIME 类型
     # 格式: [{"name": "video.mp4", "type": "video/mp4"}, {"name": "bg.png", "type": "image/png"}, {"name": "calib.json", "type": "application/json"}]
     file_infos: Optional[List[Dict[str, str]]] = None
+
+
+class VideoUpdate(BaseModel):
+    """视频更新请求，只允许更新基本信息"""
+    studio: Optional[str] = None
+    producer: Optional[str] = None
+    production: Optional[str] = None
+    action: Optional[str] = None
 
 
 class VideoRead(BaseModel):

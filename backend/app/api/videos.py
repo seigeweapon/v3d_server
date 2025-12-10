@@ -1,7 +1,7 @@
 from typing import List
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.api import deps
@@ -9,8 +9,9 @@ from app.core.config import settings
 from app.database import get_db
 from app.models.user import User
 from app.models.video import Video
-from app.schemas.video import VideoCreate, VideoRead, VideoUpload
+from app.schemas.video import VideoCreate, VideoRead, VideoUpload, VideoUpdate
 from app.utils.storage import generate_tos_post_form_data, delete_tos_objects_by_prefix
+from app.utils.video_metadata import get_video_metadata_from_file
 
 router = APIRouter(prefix="/videos", tags=["videos"])
 
@@ -40,21 +41,43 @@ def upload_video(
     # 用于写入数据库/展示的 tos_path，可包含 bucket 信息（只到 UUID 目录，不包含文件名）
     tos_path = f"tos://{settings.tos_bucket}/{uuid_path}"
     
-    # 创建视频记录（暂时不包含元数据，后续可以更新）
-    # 注意：这里需要一些默认值，因为模型要求这些字段非空
+    # 计算相机数：如果提供了 camera_count 则使用，否则从 file_infos 中统计视频文件数量
+    if video_in.camera_count is not None:
+        camera_count = video_in.camera_count
+    elif video_in.file_infos:
+        # 统计以 cam_ 开头且扩展名为 mp4 或 ts 的文件数量
+        camera_count = sum(
+            1 for file_info in video_in.file_infos
+            if file_info.get("name", "").startswith("cam_") and 
+               (file_info.get("name", "").endswith(".mp4") or file_info.get("name", "").endswith(".ts"))
+        )
+        if camera_count == 0:
+            camera_count = 1  # 如果没有找到视频文件，默认值为1
+    else:
+        camera_count = 1  # 默认值
+    
+    # 使用前端传来的元数据，如果没有提供则使用默认值
+    prime_camera_number = video_in.prime_camera_number if video_in.prime_camera_number is not None else 1
+    frame_count = video_in.frame_count if video_in.frame_count is not None else 0
+    frame_rate = video_in.frame_rate if video_in.frame_rate is not None else 30.0
+    frame_width = video_in.frame_width if video_in.frame_width is not None else 1920
+    frame_height = video_in.frame_height if video_in.frame_height is not None else 1080
+    video_format = video_in.video_format if video_in.video_format is not None else "mp4"
+    
+    # 创建视频记录
     video = Video(
         owner_id=current_user.id,
         studio=video_in.studio,
         producer=video_in.producer,
         production=video_in.production,
         action=video_in.action,
-        camera_count=1,  # 默认值，后续可更新
-        prime_camera_number=1,  # 默认值，后续可更新
-        frame_count=0,  # 默认值，后续可更新
-        frame_rate=30.0,  # 默认值，后续可更新
-        frame_width=1920,  # 默认值，后续可更新
-        frame_height=1080,  # 默认值，后续可更新
-        video_format="mp4",  # 默认值，后续可更新
+        camera_count=camera_count,  # 使用计算出的相机数
+        prime_camera_number=prime_camera_number,
+        frame_count=frame_count,
+        frame_rate=frame_rate,
+        frame_width=frame_width,
+        frame_height=frame_height,
+        video_format=video_format,
         tos_path=tos_path,
         status="uploading",  # 初始状态为上传中
     )
@@ -63,22 +86,30 @@ def upload_video(
     db.refresh(video)
     
     # 为每个文件生成 PostObject 表单数据
-    # 文件顺序：0=视频文件, 1=背景文件, 2=标定文件（作为视频数据的组成部分）
+    # 文件顺序：所有视频文件（cam_*.mp4/ts），所有背景文件（cam_*.png/jpg），标定文件（calibration_ba.json）
     post_form_data_list = []
     if video_in.file_infos:
         key_prefix = settings.tos_key_prefix.rstrip("/")
-        file_categories = ["video", "background", "calibration"]  # 文件类型分类，用于组织 TOS 路径
         
-        for index, file_info in enumerate(video_in.file_infos):
+        for file_info in video_in.file_infos:
             filename = file_info.get("name", "unknown")
             content_type = file_info.get("type")  # MIME 类型
             
-            # 根据文件索引决定上传路径
-            if index < len(file_categories):
-                category = file_categories[index]
-            else:
-                # 如果文件数量超过3个，默认使用 video
+            # 根据文件名判断文件类型
+            if filename.startswith("cam_") and (filename.endswith(".mp4") or filename.endswith(".ts")):
                 category = "video"
+            elif filename.startswith("cam_") and (filename.endswith(".png") or filename.endswith(".jpg") or filename.endswith(".jpeg")):
+                category = "background"
+            elif filename.startswith("calibration_"):
+                category = "calibration"
+            else:
+                # 默认根据 MIME 类型判断
+                if content_type and content_type.startswith("video/"):
+                    category = "video"
+                elif content_type and content_type.startswith("image/"):
+                    category = "background"
+                else:
+                    category = "calibration"
             
             # 对象 key 格式：<tos_key_prefix>/<uuid>/<category>/<filename>
             object_key = f"{key_prefix}/{uuid_dir}/{category}/{filename}"
@@ -268,3 +299,65 @@ def mark_video_failed(
     db.commit()
     db.refresh(video)
     return video
+
+
+@router.patch("/{video_id}", response_model=VideoRead)
+def update_video(
+    video_id: int,
+    video_update: VideoUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """更新视频的基本信息（摄影棚、制片方、制作、动作）"""
+    video = db.query(Video).filter(Video.id == video_id, Video.owner_id == current_user.id).first()
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    # 只更新提供的字段
+    if video_update.studio is not None:
+        video.studio = video_update.studio
+    if video_update.producer is not None:
+        video.producer = video_update.producer
+    if video_update.production is not None:
+        video.production = video_update.production
+    if video_update.action is not None:
+        video.action = video_update.action
+
+    db.add(video)
+    db.commit()
+    db.refresh(video)
+    return video
+
+
+@router.post("/extract-metadata")
+async def extract_video_metadata(
+    file: UploadFile = File(...),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """
+    从视频文件中提取元数据（支持HEVC等格式）
+    使用 ffprobe 读取视频信息
+    """
+    # 检查文件类型
+    if not file.content_type or not file.content_type.startswith('video/'):
+        raise HTTPException(status_code=400, detail="文件必须是视频格式")
+    
+    try:
+        # 读取文件内容
+        file_data = await file.read()
+        
+        # 使用 ffprobe 读取元数据
+        metadata = get_video_metadata_from_file(file_data, file.filename or 'video.mp4')
+        
+        return {
+            "duration": metadata['duration'],
+            "width": metadata['width'],
+            "height": metadata['height'],
+            "frame_rate": metadata['frame_rate'],
+            "frame_count": metadata['frame_count'],
+            "format": metadata['format'],
+        }
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=f"读取视频元数据失败: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"处理视频文件失败: {str(e)}")
