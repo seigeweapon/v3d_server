@@ -1,5 +1,5 @@
 import { Layout } from 'antd'
-import { Route, Routes, Navigate, useNavigate } from 'react-router-dom'
+import { Route, Routes, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
@@ -22,6 +22,7 @@ const PrivateRoute = ({ children }: { children: JSX.Element }) => {
 
 const AppHeader = () => {
   const navigate = useNavigate()
+  const location = useLocation()
   const { isAuthenticated } = useAuth()
   const { data: user } = useQuery(
     ['currentUser'],
@@ -32,6 +33,8 @@ const AppHeader = () => {
       refetchOnMount: false,
     }
   )
+
+  const isActive = (path: string) => location.pathname === path
 
   return (
     <Header style={{ 
@@ -47,6 +50,7 @@ const AppHeader = () => {
           cursor: 'pointer',
           userSelect: 'none',
           transition: 'opacity 0.3s',
+          fontSize: '20px',
         }}
         onMouseEnter={(e) => {
           e.currentTarget.style.opacity = '0.8'
@@ -57,25 +61,78 @@ const AppHeader = () => {
       >
         空间视频制作
       </span>
+      {isAuthenticated && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 30, position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>
+          <span
+            onClick={() => navigate('/videos')}
+            style={{
+              cursor: 'pointer',
+              userSelect: 'none',
+              transition: 'all 0.3s',
+              fontSize: '18px',
+              fontWeight: 500,
+              color: isActive('/videos') ? '#ffd700' : '#fff',
+              borderBottom: isActive('/videos') ? '2px solid #ffd700' : '2px solid transparent',
+              paddingBottom: '2px',
+            }}
+            onMouseEnter={(e) => {
+              if (!isActive('/videos')) {
+                e.currentTarget.style.opacity = '0.8'
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.opacity = '1'
+            }}
+          >
+            视频列表
+          </span>
+          <span
+            onClick={() => navigate('/jobs')}
+            style={{
+              cursor: 'pointer',
+              userSelect: 'none',
+              transition: 'all 0.3s',
+              fontSize: '18px',
+              fontWeight: 500,
+              color: isActive('/jobs') ? '#ffd700' : '#fff',
+              borderBottom: isActive('/jobs') ? '2px solid #ffd700' : '2px solid transparent',
+              paddingBottom: '2px',
+            }}
+            onMouseEnter={(e) => {
+              if (!isActive('/jobs')) {
+                e.currentTarget.style.opacity = '0.8'
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.opacity = '1'
+            }}
+          >
+            任务列表
+          </span>
+        </div>
+      )}
       {isAuthenticated && user && (
-        <span
-          onClick={() => navigate('/user')}
-          style={{
-            cursor: 'pointer',
-            userSelect: 'none',
-            transition: 'opacity 0.3s',
-            fontSize: '14px',
-            fontWeight: 'normal',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.opacity = '0.8'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.opacity = '1'
-          }}
-        >
-          {user.full_name || user.email}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: '14px', fontWeight: 400 }}>当前用户：</span>
+          <span
+            onClick={() => navigate('/user')}
+            style={{
+              cursor: 'pointer',
+              userSelect: 'none',
+              transition: 'opacity 0.3s',
+              fontSize: '14px',
+              fontWeight: 'normal',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.opacity = '0.8'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.opacity = '1'
+            }}
+          >
+            {user.full_name || user.email}
+          </span>
+        </div>
       )}
     </Header>
   )
