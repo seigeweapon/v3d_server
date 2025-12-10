@@ -1,7 +1,12 @@
+import io
+import zipfile
+from datetime import datetime
 from typing import List
+from urllib.request import urlopen
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api import deps
@@ -9,8 +14,21 @@ from app.core.config import settings
 from app.database import get_db
 from app.models.user import User
 from app.models.video import Video
-from app.schemas.video import VideoCreate, VideoRead, VideoUpload, VideoUpdate
-from app.utils.storage import generate_tos_post_form_data, delete_tos_objects_by_prefix
+from app.schemas.video import (
+    VideoCreate,
+    VideoRead,
+    VideoUpload,
+    VideoUpdate,
+    VideoDownloadRequest,
+    VideoDownloadResponse,
+    FileDownloadInfo,
+)
+from app.utils.storage import (
+    generate_tos_post_form_data,
+    delete_tos_objects_by_prefix,
+    list_tos_objects,
+    generate_tos_download_url,
+)
 from app.utils.video_metadata import get_video_metadata_from_file
 
 router = APIRouter(prefix="/videos", tags=["videos"])
@@ -361,3 +379,94 @@ async def extract_video_metadata(
         raise HTTPException(status_code=500, detail=f"读取视频元数据失败: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"处理视频文件失败: {str(e)}")
+
+
+@router.post("/{video_id}/download-zip")
+def download_video_zip(
+    video_id: int,
+    download_request: VideoDownloadRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """
+    将选定类型的所有文件打包为 ZIP 并返回（流式响应）。
+    ZIP 内部目录格式: v3d_data_YYYYMMDD_hhmmss/<file_type>/<filename>
+    """
+    video = db.query(Video).filter(Video.id == video_id, Video.owner_id == current_user.id).first()
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    
+    # 提取 UUID 目录路径
+    tos_path = video.tos_path
+    if tos_path.startswith("tos://"):
+        path_without_schema = tos_path[6:]
+        if "/" in path_without_schema:
+            _, path_after_bucket = path_without_schema.split("/", 1)
+            if path_after_bucket.endswith("/video"):
+                uuid_path = path_after_bucket[:-6]
+            else:
+                uuid_path = path_after_bucket
+        else:
+            raise HTTPException(status_code=400, detail="Invalid tos_path format")
+    else:
+        uuid_path = tos_path
+    
+    valid_file_types = {"video", "background", "calibration"}
+    requested_types = set(download_request.file_types)
+    invalid_types = requested_types - valid_file_types
+    if invalid_types:
+        raise HTTPException(status_code=400, detail=f"Invalid file types: {invalid_types}")
+    
+    # 收集需要打包的对象
+    files_to_zip: list[FileDownloadInfo] = []
+    for file_type in download_request.file_types:
+        type_prefix = f"{uuid_path}/{file_type}/"
+        try:
+            object_keys = list_tos_objects(type_prefix)
+            for object_key in object_keys:
+                filename = object_key.split("/")[-1]
+                download_url = generate_tos_download_url(object_key)
+                files_to_zip.append(
+                    FileDownloadInfo(
+                        object_key=object_key,
+                        download_url=download_url,
+                        filename=filename,
+                        file_type=file_type,
+                    )
+                )
+        except Exception as e:
+            import logging
+            logging.warning(f"列出文件类型 {file_type} 失败 (前缀: {type_prefix}): {e}")
+            continue
+    
+    if not files_to_zip:
+        raise HTTPException(status_code=404, detail="No files found for the specified file types")
+    
+    # 生成 ZIP 文件名和内部根目录名
+    ts_str = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    zip_root = f"v3d_data_{ts_str}"
+    zip_filename = f"{zip_root}.zip"
+    
+    def zip_generator():
+        with io.BytesIO() as mem_buf:
+            with zipfile.ZipFile(mem_buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for idx, file_info in enumerate(files_to_zip, start=1):
+                    arcname = f"{zip_root}/{file_info.file_type}/{file_info.filename}"
+                    try:
+                        with urlopen(file_info.download_url) as resp:
+                            content = resp.read()
+                        zf.writestr(arcname, content)
+                    except Exception as e:
+                        import logging
+                        logging.error(f"打包文件失败: {file_info.object_key}, 错误: {e}")
+                        continue
+            mem_buf.seek(0)
+            chunk = mem_buf.read(8192)
+            while chunk:
+                yield chunk
+                chunk = mem_buf.read(8192)
+    
+    headers = {
+        "Content-Disposition": f'attachment; filename="{zip_filename}"'
+    }
+    return StreamingResponse(zip_generator(), media_type="application/zip", headers=headers)

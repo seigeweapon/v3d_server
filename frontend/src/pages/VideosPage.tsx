@@ -1,7 +1,7 @@
-import { Card, Table, Button, Modal, message, Tag, Popconfirm, Progress, Tooltip, Form, Input, Space, Descriptions } from 'antd'
-import { PlusOutlined, CopyOutlined, DeleteOutlined, EditOutlined, CloseOutlined, EyeOutlined } from '@ant-design/icons'
+import { Card, Table, Button, Modal, message, Tag, Popconfirm, Progress, Tooltip, Form, Input, Space, Descriptions, Checkbox } from 'antd'
+import { PlusOutlined, CopyOutlined, DeleteOutlined, EditOutlined, CloseOutlined, EyeOutlined, DownloadOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
-import { fetchVideos, Video, uploadVideo, deleteVideo, markVideoReady, markVideoFailed, updateVideo, extractVideoMetadata } from '../api/videos'
+import { fetchVideos, Video, uploadVideo, deleteVideo, markVideoReady, markVideoFailed, updateVideo, extractVideoMetadata, downloadVideoZip } from '../api/videos'
 import { useRef, useState, useEffect } from 'react'
 import { getVideoMetadata, calculateFrameCount, getVideoFormat } from '../utils/videoMetadata'
 
@@ -55,6 +55,10 @@ const VideosPage = () => {
   const [selectedVideoFiles, setSelectedVideoFiles] = useState<File[]>([])
   const [selectedBackgroundFiles, setSelectedBackgroundFiles] = useState<File[]>([])
   const [selectedCalibrationFile, setSelectedCalibrationFile] = useState<File | null>(null)
+  const [downloadModalVisible, setDownloadModalVisible] = useState(false)
+  const [downloadingVideo, setDownloadingVideo] = useState<Video | null>(null)
+  const [selectedFileTypes, setSelectedFileTypes] = useState<string[]>(['video', 'background', 'calibration'])
+  const [downloading, setDownloading] = useState(false)
 
   const { data: videos, isLoading: videosLoading } = useQuery<Video[]>(['videos'], fetchVideos, {
     staleTime: 5 * 60 * 1000,
@@ -446,6 +450,52 @@ const VideosPage = () => {
     setDetailVideo(null)
   }
 
+  const handleDownload = (video: Video) => {
+    setDownloadingVideo(video)
+    setSelectedFileTypes(['video', 'background', 'calibration']) // 重置为默认全选
+    setDownloadModalVisible(true)
+  }
+
+  const handleDownloadModalOk = async () => {
+    if (!downloadingVideo || selectedFileTypes.length === 0) {
+      message.warning('请至少选择一种文件类型')
+      return
+    }
+
+    setDownloading(true)
+    try {
+      // 后端打包 ZIP，单链接下载
+      const { blob, filename } = await downloadVideoZip(downloadingVideo.id, selectedFileTypes)
+
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename || 'v3d_data.zip'
+      link.style.display = 'none'
+      document.body.appendChild(link)
+      link.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(link)
+
+      message.success('开始下载 ZIP，文件将保存到浏览器的默认下载目录')
+
+      setDownloadModalVisible(false)
+      setDownloadingVideo(null)
+    } catch (error: any) {
+      const errorMessage = error?.response?.data?.detail || error?.message || '获取下载链接失败'
+      message.error(`下载失败: ${errorMessage}`)
+      console.error('下载失败:', error)
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  const handleDownloadModalCancel = () => {
+    setDownloadModalVisible(false)
+    setDownloadingVideo(null)
+    setSelectedFileTypes(['video', 'background', 'calibration'])
+  }
+
   const handleVideoFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const fileList = event.target.files
     if (!fileList || fileList.length === 0) {
@@ -593,6 +643,14 @@ const VideosPage = () => {
             onClick={() => handleEditVideo(record)}
           >
             修改
+          </Button>
+          <Button
+            type="text"
+            icon={<DownloadOutlined />}
+            size="small"
+            onClick={() => handleDownload(record)}
+          >
+            下载
           </Button>
           <Popconfirm
             title="确定要删除这条视频数据吗？"
@@ -942,6 +1000,36 @@ const VideosPage = () => {
             </Descriptions.Item>
           </Descriptions>
         )}
+      </Modal>
+
+      {/* 下载文件类型选择对话框 */}
+      <Modal
+        title="选择要下载的文件类型"
+        open={downloadModalVisible}
+        onOk={handleDownloadModalOk}
+        onCancel={handleDownloadModalCancel}
+        confirmLoading={downloading}
+        okText="确认下载"
+        cancelText="取消"
+      >
+        <Checkbox.Group
+          value={selectedFileTypes}
+          onChange={(values) => setSelectedFileTypes(values as string[])}
+          style={{ width: '100%' }}
+        >
+          <Space direction="vertical">
+            <Checkbox value="video">视频文件 (video)</Checkbox>
+            <Checkbox value="background">背景文件 (background)</Checkbox>
+            <Checkbox value="calibration">标定文件 (calibration)</Checkbox>
+          </Space>
+        </Checkbox.Group>
+        <div style={{ marginTop: 16, color: '#666', fontSize: 12, lineHeight: '1.8' }}>
+          <div><strong>提示：</strong></div>
+          <div>1. 确认后会将选中文件类型下的<strong>所有文件打包成一个 ZIP</strong> 并下载</div>
+          <div>2. ZIP 内部目录：v3d_data_YYYYMMDD_hhmmss/&lt;类型&gt;/文件名</div>
+          <div>3. 文件会保存到浏览器的<strong>默认下载目录</strong>（无法自定义路径，这是浏览器的安全限制）</div>
+          <div>4. 如下载被拦截，请在浏览器提示中选择“允许下载”或检查下载设置</div>
+        </div>
       </Modal>
     </div>
   )

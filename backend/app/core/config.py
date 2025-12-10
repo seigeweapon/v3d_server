@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     tos_endpoint: Optional[str] = None  # 例如: "tos-cn-beijing.volces.com"
     tos_bucket: str = "videos"  # 默认桶名，可在 .env 中覆盖
     tos_key_prefix: str = "fv-data/tests"  # TOS key 前缀，可在 .env 中覆盖，格式：<tos_key_prefix>/<uuid>/video 或 <tos_key_prefix>/<uuid>/background 或 <tos_key_prefix>/<uuid>/calibration
+    tos_presigned_url_expire: int = 3600  # 预签名URL有效期（秒），默认1小时，可在 .env 中覆盖
 
     cors_origins: List[AnyHttpUrl] = []
 

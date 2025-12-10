@@ -64,6 +64,28 @@ def generate_tos_upload_url(object_key: str, expires: int = 3600) -> str:
     return out.signed_url
 
 
+def generate_tos_download_url(object_key: str, expires: Optional[int] = None) -> str:
+    """为指定对象 key 生成 TOS 预签名下载 URL（GET）。"""
+    client = get_tos_client()
+    bucket = settings.tos_bucket
+    if not bucket:
+        raise RuntimeError("TOS_BUCKET 未配置")
+    
+    # 使用配置的过期时间，如果没有配置则使用默认值
+    if expires is None:
+        expires = settings.tos_presigned_url_expire
+
+    # 按照官方文档推荐的 TosClientV2.pre_signed_url 用法生成预签名 URL
+    # 参考文档：https://www.volcengine.com/docs/6349/135725?lang=zh
+    out = client.pre_signed_url(
+        tos.HttpMethodType.Http_Method_Get,
+        bucket,
+        object_key,
+        expires=expires,
+    )
+    return out.signed_url
+
+
 def set_tos_object_content_type(object_key: str, content_type: str) -> None:
     """
     设置 TOS 对象的 Content-Type 元数据。

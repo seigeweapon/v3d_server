@@ -107,10 +107,30 @@ export interface VideoMetadata {
 export async function extractVideoMetadata(file: File): Promise<VideoMetadata> {
   const formData = new FormData()
   formData.append('file', file)
-  const { data } = await client.post<VideoMetadata>('/videos/extract-metadata', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  })
+  // 不要手动设置 Content-Type，让 axios 自动设置正确的 multipart/form-data header（包含 boundary）
+  const { data } = await client.post<VideoMetadata>('/videos/extract-metadata', formData)
   return data
+}
+
+export async function downloadVideoZip(
+  id: number,
+  fileTypes: string[]
+): Promise<{ blob: Blob; filename: string }> {
+  const response = await client.post(`/videos/${id}/download-zip`, {
+    file_types: fileTypes,
+  }, {
+    responseType: 'blob',
+  })
+
+  // 从 Content-Disposition 提取文件名
+  let filename = 'v3d_data.zip'
+  const disposition = response.headers['content-disposition']
+  if (disposition) {
+    const match = /filename="?([^\";]+)"?/.exec(disposition)
+    if (match && match[1]) {
+      filename = match[1]
+    }
+  }
+
+  return { blob: response.data, filename }
 }

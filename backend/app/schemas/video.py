@@ -51,6 +51,24 @@ class VideoUpdate(BaseModel):
     action: Optional[str] = None
 
 
+class VideoDownloadRequest(BaseModel):
+    """视频下载请求，指定要下载的文件类型"""
+    file_types: List[str]  # 例如: ["video", "background", "calibration"]
+
+
+class FileDownloadInfo(BaseModel):
+    """文件下载信息"""
+    object_key: str
+    download_url: str
+    filename: str
+    file_type: str  # "video", "background", "calibration"
+
+
+class VideoDownloadResponse(BaseModel):
+    """视频下载响应，包含所有文件的下载URL"""
+    files: List[FileDownloadInfo]
+
+
 class VideoRead(BaseModel):
     studio: str
     producer: str
