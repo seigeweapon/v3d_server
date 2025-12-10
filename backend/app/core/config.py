@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     app_name: str = "Video Processing Service"
     api_v1_prefix: str = "/api/v1"
     secret_key: str = "changeme"
-    access_token_expire_minutes: int = 30
+    access_token_expire_minutes: int = 60 * 24  # 24小时
     refresh_token_expire_minutes: int = 60 * 24 * 7
     algorithm: str = "HS256"
 

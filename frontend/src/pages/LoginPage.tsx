@@ -30,7 +30,7 @@ const LoginPage = () => {
             </Button>
           </Form.Item>
         </Form>
-        <Typography.Paragraph type="secondary">注册功能请使用后端接口</Typography.Paragraph>
+        <Typography.Paragraph type="secondary">请联系管理员获取账号</Typography.Paragraph>
       </Card>
     </div>
   )
