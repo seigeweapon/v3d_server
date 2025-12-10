@@ -13,9 +13,8 @@ class Job(Base):
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     status = Column(String, default="pending")
     parameters = Column(Text, nullable=True)
-    result_path = Column(String, nullable=True)
+    tos_path = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     video = relationship("Video", backref="jobs")
     owner = relationship("User", backref="jobs")

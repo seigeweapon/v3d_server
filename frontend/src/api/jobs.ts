@@ -5,9 +5,8 @@ export interface Job {
   video_id: number
   status: string
   parameters?: string
-  result_path?: string
+  tos_path?: string
   created_at: string
-  updated_at: string
 }
 
 export async function fetchJobs() {
@@ -17,5 +16,10 @@ export async function fetchJobs() {
 
 export async function createJob(video_id: number, parameters?: string) {
   const { data } = await client.post<Job>('/jobs/', { video_id, parameters })
+  return data
+}
+
+export async function deleteJob(id: number) {
+  const { data } = await client.delete(`/jobs/${id}`)
   return data
 }

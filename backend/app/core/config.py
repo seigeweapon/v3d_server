@@ -28,6 +28,12 @@ class Settings(BaseSettings):
         env="TOS_VIDEO_KEY_PREFIX",
         description="TOS key 前缀，格式：<prefix>/<uuid>/<category>",
     )
+    # TOS job key 前缀，用于任务结果存储
+    tos_job_key_prefix: str = Field(
+        "fv-data/jobs",
+        env="TOS_JOB_KEY_PREFIX",
+        description="TOS job key 前缀，格式：<bucket>/<prefix>/<uuid>/",
+    )
 
     cors_origins: List[AnyHttpUrl] = []
 

@@ -17,9 +17,8 @@ class JobRead(JobBase):
     id: int
     owner_id: int
     status: str
-    result_path: Optional[str]
+    tos_path: Optional[str]
     created_at: datetime
-    updated_at: datetime
 
     class Config:
         orm_mode = True

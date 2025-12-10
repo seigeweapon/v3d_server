@@ -17,6 +17,6 @@ def download_result(
     current_user: User = Depends(deps.get_current_active_user),
 ):
     job = db.query(Job).filter(Job.id == job_id, Job.owner_id == current_user.id).first()
-    if not job or not job.result_path:
+    if not job or not job.tos_path:
         raise HTTPException(status_code=404, detail="Result not available")
-    return FileResponse(path=job.result_path, filename=f"result-{job_id}.zip")
+    return FileResponse(path=job.tos_path, filename=f"result-{job_id}.zip")

@@ -1,0 +1,6 @@
+curl -X POST http://localhost:8000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "debug@example.com", "password": "debug123", "full_name": "debugger"}'
+
+localStorage.clear()
+location.reload()
