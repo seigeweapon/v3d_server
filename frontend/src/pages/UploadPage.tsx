@@ -1,14 +1,10 @@
 import { useState } from 'react'
 import { Button, Card, Form, Input, InputNumber, message } from 'antd'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { createVideo } from '../api/videos'
-import { fetchCalibrations } from '../api/calibrations'
-import { fetchBackgrounds } from '../api/backgrounds'
 
 const UploadPage = () => {
   const queryClient = useQueryClient()
-  const { data: calibrations } = useQuery(['calibrations'], fetchCalibrations)
-  const { data: backgrounds } = useQuery(['backgrounds'], fetchBackgrounds)
 
   const mutation = useMutation(createVideo, {
     onSuccess: () => {
@@ -25,10 +21,10 @@ const UploadPage = () => {
   return (
     <Card title="创建视频" style={{ maxWidth: 800 }}>
       <Form layout="vertical" onFinish={handleSubmit}>
-        <Form.Item label="工作室" name="studio" rules={[{ required: true }]}>
+        <Form.Item label="摄影棚" name="studio" rules={[{ required: true }]}>
           <Input />
         </Form.Item>
-        <Form.Item label="制片人" name="producer" rules={[{ required: true }]}>
+        <Form.Item label="制片方" name="producer" rules={[{ required: true }]}>
           <Input />
         </Form.Item>
         <Form.Item label="制作" name="production" rules={[{ required: true }]}>
@@ -42,20 +38,6 @@ const UploadPage = () => {
         </Form.Item>
         <Form.Item label="主相机编号" name="prime_camera_number" rules={[{ required: true }]}>
           <InputNumber min={1} style={{ width: '100%' }} />
-        </Form.Item>
-        <Form.Item label="背景" name="background_id" rules={[{ required: true }]}>
-          <InputNumber 
-            min={1} 
-            style={{ width: '100%' }}
-            placeholder="选择背景ID"
-          />
-        </Form.Item>
-        <Form.Item label="标定" name="calibration_id" rules={[{ required: true }]}>
-          <InputNumber 
-            min={1} 
-            style={{ width: '100%' }}
-            placeholder="选择标定ID"
-          />
         </Form.Item>
         <Form.Item label="帧数" name="frame_count" rules={[{ required: true }]}>
           <InputNumber min={1} style={{ width: '100%' }} />

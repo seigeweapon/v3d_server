@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     tos_region: Optional[str] = None  # 可选：TOS 区域
     tos_endpoint: Optional[str] = None  # 例如: "tos-cn-beijing.volces.com"
     tos_bucket: str = "videos"  # 默认桶名，可在 .env 中覆盖
-    tos_background_prefix: str = "fv-data/tests/background/"  # 对象 key 前缀，可在 .env 中覆盖
+    tos_key_prefix: str = "fv-data/tests"  # TOS key 前缀，可在 .env 中覆盖，格式：<tos_key_prefix>/<uuid>/video 或 <tos_key_prefix>/<uuid>/background 或 <tos_key_prefix>/<uuid>/calibration
 
     cors_origins: List[AnyHttpUrl] = []
 
