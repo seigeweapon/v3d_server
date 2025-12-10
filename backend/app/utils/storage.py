@@ -71,9 +71,9 @@ def generate_tos_download_url(object_key: str, expires: Optional[int] = None) ->
     if not bucket:
         raise RuntimeError("TOS_BUCKET 未配置")
     
-    # 使用配置的过期时间，如果没有配置则使用默认值
+    # 使用传入的过期时间，如果没有则使用默认值 3600 秒
     if expires is None:
-        expires = settings.tos_presigned_url_expire
+        expires = 3600
 
     # 按照官方文档推荐的 TosClientV2.pre_signed_url 用法生成预签名 URL
     # 参考文档：https://www.volcengine.com/docs/6349/135725?lang=zh
