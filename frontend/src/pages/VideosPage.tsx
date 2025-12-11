@@ -2,6 +2,7 @@ import { Card, Table, Button, Modal, message, Tag, Popconfirm, Progress, Tooltip
 import { PlusOutlined, CopyOutlined, DeleteOutlined, EditOutlined, CloseOutlined, EyeOutlined, DownloadOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { fetchVideos, Video, uploadVideo, deleteVideo, markVideoReady, markVideoFailed, updateVideo, extractVideoMetadata, downloadVideoZip } from '../api/videos'
+import { getCurrentUser } from '../api/users'
 import { useRef, useState, useEffect } from 'react'
 import { getVideoMetadata, calculateFrameCount, getVideoFormat } from '../utils/videoMetadata'
 
@@ -61,6 +62,11 @@ const VideosPage = () => {
   const [downloading, setDownloading] = useState(false)
 
   const { data: videos, isLoading: videosLoading } = useQuery<Video[]>(['videos'], fetchVideos, {
+    staleTime: 5 * 60 * 1000,
+    refetchOnMount: false,
+  })
+
+  const { data: currentUser } = useQuery(['currentUser'], getCurrentUser, {
     staleTime: 5 * 60 * 1000,
     refetchOnMount: false,
   })
@@ -657,24 +663,26 @@ const VideosPage = () => {
           >
             下载
           </Button>
-          <Popconfirm
-            title="确定要删除这条视频数据吗？"
-            description="删除后将同时删除 TOS 上的所有相关文件（包括视频、背景、标定文件），此操作不可恢复。"
-            onConfirm={() => deleteVideoMutation.mutate(record.id)}
-            okText="确定"
-            cancelText="取消"
-            okButtonProps={{ danger: true }}
-          >
-            <Button
-              type="text"
-              danger
-              icon={<DeleteOutlined />}
-              size="small"
-              loading={deleteVideoMutation.isLoading}
+          {currentUser?.is_superuser && (
+            <Popconfirm
+              title="确定要删除这条视频数据吗？"
+              description="删除后将同时删除 TOS 上的所有相关文件（包括视频、背景、标定文件），此操作不可恢复。"
+              onConfirm={() => deleteVideoMutation.mutate(record.id)}
+              okText="确定"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
             >
-              删除
-            </Button>
-          </Popconfirm>
+              <Button
+                type="text"
+                danger
+                icon={<DeleteOutlined />}
+                size="small"
+                loading={deleteVideoMutation.isLoading}
+              >
+                删除
+              </Button>
+            </Popconfirm>
+          )}
         </Space>
       ),
     },

@@ -4,10 +4,15 @@ import { CopyOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchVideos, Video } from '../api/videos'
 import { createJob, fetchJobs, deleteJob, updateJobNotes, Job } from '../api/jobs'
+import { getCurrentUser } from '../api/users'
 
 const JobsPage = () => {
   const { data: videos } = useQuery(['videos'], fetchVideos)
   const { data: jobs } = useQuery(['jobs'], fetchJobs)
+  const { data: currentUser } = useQuery(['currentUser'], getCurrentUser, {
+    staleTime: 5 * 60 * 1000,
+    refetchOnMount: false,
+  })
   const queryClient = useQueryClient()
   const [createModalVisible, setCreateModalVisible] = useState(false)
   const [editNotesModalVisible, setEditNotesModalVisible] = useState(false)
@@ -277,24 +282,26 @@ const JobsPage = () => {
           >
             终止
           </Button>
-          <Popconfirm
-            title="确定要删除这个任务吗？"
-            description="删除后将同时删除TOS上的相关文件，此操作不可恢复。"
-            onConfirm={() => handleDelete(record)}
-            okText="确定"
-            cancelText="取消"
-            okButtonProps={{ danger: true }}
-          >
-            <Button 
-              type="link" 
-              danger 
-              size="small" 
-              loading={deleteJobMutation.isLoading}
-              style={{ padding: 0 }}
+          {currentUser?.is_superuser && (
+            <Popconfirm
+              title="确定要删除这个任务吗？"
+              description="删除后将同时删除TOS上的相关文件，此操作不可恢复。"
+              onConfirm={() => handleDelete(record)}
+              okText="确定"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
             >
-              删除
-            </Button>
-          </Popconfirm>
+              <Button 
+                type="link" 
+                danger 
+                size="small" 
+                loading={deleteJobMutation.isLoading}
+                style={{ padding: 0 }}
+              >
+                删除
+              </Button>
+            </Popconfirm>
+          )}
         </>
       )
     }

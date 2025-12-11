@@ -7,6 +7,7 @@ import UploadPage from './pages/UploadPage'
 import JobsPage from './pages/JobsPage'
 import VideosPage from './pages/VideosPage'
 import UserPage from './pages/UserPage'
+import UsersManagementPage from './pages/UsersManagementPage'
 import { useQuery } from '@tanstack/react-query'
 import { getCurrentUser } from './api/users'
 
@@ -17,6 +18,29 @@ const PrivateRoute = ({ children }: { children: JSX.Element }) => {
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />
   }
+  return children
+}
+
+const AdminRoute = ({ children }: { children: JSX.Element }) => {
+  const { isAuthenticated } = useAuth()
+  const { data: user } = useQuery(
+    ['currentUser'],
+    getCurrentUser,
+    {
+      enabled: isAuthenticated,
+      staleTime: 5 * 60 * 1000,
+      refetchOnMount: false,
+    }
+  )
+  
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />
+  }
+  
+  if (!user?.is_superuser) {
+    return <Navigate to="/" replace />
+  }
+  
   return children
 }
 
@@ -109,6 +133,31 @@ const AppHeader = () => {
           >
             任务列表
           </span>
+          {user?.is_superuser && (
+            <span
+              onClick={() => navigate('/users')}
+              style={{
+                cursor: 'pointer',
+                userSelect: 'none',
+                transition: 'all 0.3s',
+                fontSize: '18px',
+                fontWeight: 500,
+                color: isActive('/users') ? '#ffd700' : '#fff',
+                borderBottom: isActive('/users') ? '2px solid #ffd700' : '2px solid transparent',
+                paddingBottom: '2px',
+              }}
+              onMouseEnter={(e) => {
+                if (!isActive('/users')) {
+                  e.currentTarget.style.opacity = '0.8'
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.opacity = '1'
+              }}
+            >
+              用户列表
+            </span>
+          )}
         </div>
       )}
       {isAuthenticated && user && (
@@ -182,6 +231,14 @@ const AppLayout = () => {
               <PrivateRoute>
                 <UserPage />
               </PrivateRoute>
+            }
+          />
+          <Route
+            path="/users"
+            element={
+              <AdminRoute>
+                <UsersManagementPage />
+              </AdminRoute>
             }
           />
           <Route path="/login" element={<LoginPage />} />

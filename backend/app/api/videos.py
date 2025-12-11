@@ -38,7 +38,11 @@ router = APIRouter(prefix="/videos", tags=["videos"])
 def list_videos(
     db: Session = Depends(get_db), current_user: User = Depends(deps.get_current_active_user)
 ):
-    return db.query(Video).options(joinedload(Video.owner)).filter(Video.owner_id == current_user.id).all()
+    # 管理员可以看到所有视频，普通用户只能看到自己的视频
+    if current_user.is_superuser:
+        return db.query(Video).options(joinedload(Video.owner)).all()
+    else:
+        return db.query(Video).options(joinedload(Video.owner)).filter(Video.owner_id == current_user.id).all()
 
 
 @router.post("/upload", response_model=VideoRead)
@@ -187,8 +191,18 @@ def delete_video(
     """
     删除视频记录，同时删除 TOS 上的所有相关文件（包括 video、background、calibration 三个子目录）。
     注意：background 和 calibration 文件是作为视频数据的组成部分存储的，不是独立的表。
+    只有管理员可以删除视频。
     """
-    video = db.query(Video).filter(Video.id == video_id, Video.owner_id == current_user.id).first()
+    # 检查权限：只有管理员可以删除
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="只有管理员可以删除视频")
+    
+    # 管理员可以删除任何视频，普通用户只能删除自己的
+    if current_user.is_superuser:
+        video = db.query(Video).filter(Video.id == video_id).first()
+    else:
+        video = db.query(Video).filter(Video.id == video_id, Video.owner_id == current_user.id).first()
+    
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
     

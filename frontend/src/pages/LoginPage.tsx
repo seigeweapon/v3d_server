@@ -1,14 +1,19 @@
 import { Card, Typography, Form, Input, Button, message } from 'antd'
+import { useQueryClient } from '@tanstack/react-query'
 import { login } from '../api/auth'
 import { useAuth } from '../hooks/useAuth'
 
 const LoginPage = () => {
   const { login: setToken } = useAuth()
+  const queryClient = useQueryClient()
 
   const onFinish = async (values: { email: string; password: string }) => {
     try {
       const data = await login(values.email, values.password)
+      // 清除所有查询缓存，确保获取到最新的用户信息
+      queryClient.clear()
       setToken(data.access_token)
+      message.success('登录成功')
     } catch (error) {
       message.error('登录失败，请检查账号或密码')
     }

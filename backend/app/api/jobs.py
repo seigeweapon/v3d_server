@@ -20,7 +20,11 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 @router.get("/", response_model=List[JobRead])
 def list_jobs(db: Session = Depends(get_db), current_user: User = Depends(deps.get_current_active_user)):
-    return db.query(Job).options(joinedload(Job.owner)).filter(Job.owner_id == current_user.id).all()
+    # 管理员可以看到所有任务，普通用户只能看到自己的任务
+    if current_user.is_superuser:
+        return db.query(Job).options(joinedload(Job.owner)).all()
+    else:
+        return db.query(Job).options(joinedload(Job.owner)).filter(Job.owner_id == current_user.id).all()
 
 
 @router.post("/", response_model=JobRead)
@@ -29,7 +33,11 @@ def create_job(
     db: Session = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user),
 ):
-    video = db.query(Video).filter(Video.id == job_in.video_id, Video.owner_id == current_user.id).first()
+    # 管理员可以为任何视频创建任务，普通用户只能为自己的视频创建任务
+    if current_user.is_superuser:
+        video = db.query(Video).filter(Video.id == job_in.video_id).first()
+    else:
+        video = db.query(Video).filter(Video.id == job_in.video_id, Video.owner_id == current_user.id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
@@ -79,8 +87,18 @@ def delete_job(
 ):
     """
     删除任务记录，如果任务有tos_path，则同时删除TOS上的相关文件。
+    只有管理员可以删除任务。
     """
-    job = db.query(Job).filter(Job.id == job_id, Job.owner_id == current_user.id).first()
+    # 检查权限：只有管理员可以删除
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="只有管理员可以删除任务")
+    
+    # 管理员可以删除任何任务，普通用户只能删除自己的
+    if current_user.is_superuser:
+        job = db.query(Job).filter(Job.id == job_id).first()
+    else:
+        job = db.query(Job).filter(Job.id == job_id, Job.owner_id == current_user.id).first()
+    
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
