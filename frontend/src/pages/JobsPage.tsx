@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import { Button, Card, Form, Input, Select, Table, Tag, message, Tooltip, Modal, Popconfirm } from 'antd'
-import { CopyOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons'
+import { Button, Card, Form, Input, Select, Table, Tag, message, Tooltip, Modal, Popconfirm, Switch, Space } from 'antd'
+import { CopyOutlined, PlusOutlined, EditOutlined, SettingOutlined } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchVideos, Video } from '../api/videos'
-import { createJob, fetchJobs, deleteJob, updateJobNotes, Job } from '../api/jobs'
-import { getCurrentUser } from '../api/users'
+import { createJob, fetchJobs, deleteJob, updateJobNotes, Job, updateJobVisibility, JobVisibilityUpdate } from '../api/jobs'
+import { getCurrentUser, fetchUsers, User } from '../api/users'
 
 const JobsPage = () => {
   const { data: videos } = useQuery(['videos'], fetchVideos)
@@ -13,12 +13,21 @@ const JobsPage = () => {
     staleTime: 5 * 60 * 1000,
     refetchOnMount: false,
   })
+
+  const { data: allUsers } = useQuery<User[]>(['users'], fetchUsers, {
+    enabled: !!currentUser?.is_superuser, // 只有管理员才需要获取用户列表
+    staleTime: 5 * 60 * 1000,
+    refetchOnMount: false,
+  })
   const queryClient = useQueryClient()
   const [createModalVisible, setCreateModalVisible] = useState(false)
   const [editNotesModalVisible, setEditNotesModalVisible] = useState(false)
+  const [visibilityModalVisible, setVisibilityModalVisible] = useState(false)
   const [editingJob, setEditingJob] = useState<Job | null>(null)
+  const [editingVisibilityJob, setEditingVisibilityJob] = useState<Job | null>(null)
   const [jobForm] = Form.useForm()
   const [notesForm] = Form.useForm()
+  const [visibilityForm] = Form.useForm()
 
   const mutation = useMutation((params: { video_id: number; parameters?: string; notes?: string }) => createJob(params.video_id, params.parameters, params.notes), {
     onSuccess: () => {
@@ -63,6 +72,26 @@ const JobsPage = () => {
         const errorMessage = error?.response?.data?.detail || error?.message || '更新失败'
         message.error(`更新失败: ${errorMessage}`)
         console.error('更新备注失败:', error)
+      }
+    }
+  )
+
+  const updateJobVisibilityMutation = useMutation(
+    async (payload: { id: number; visibility: JobVisibilityUpdate }) => {
+      await updateJobVisibility(payload.id, payload.visibility)
+    },
+    {
+      onSuccess: () => {
+        message.success('可见性设置更新成功')
+        queryClient.invalidateQueries(['jobs'])
+        setVisibilityModalVisible(false)
+        setEditingVisibilityJob(null)
+        visibilityForm.resetFields()
+      },
+      onError: (error: any) => {
+        const errorMessage = error?.response?.data?.detail || error?.message || '更新失败'
+        message.error(`更新失败: ${errorMessage}`)
+        console.error('更新可见性失败:', error)
       }
     }
   )
@@ -137,6 +166,49 @@ const JobsPage = () => {
     notesForm.resetFields()
   }
 
+  const handleEditVisibility = (job: Job) => {
+    setEditingVisibilityJob(job)
+    let visibleUserIds: number[] = []
+    try {
+      visibleUserIds = job.visible_to_user_ids ? JSON.parse(job.visible_to_user_ids) : []
+    } catch (e) {
+      console.error('解析 visible_to_user_ids 失败:', e, job.visible_to_user_ids)
+    }
+    visibilityForm.setFieldsValue({
+      is_public: job.is_public,
+      visible_to_user_ids: visibleUserIds,
+    })
+    setVisibilityModalVisible(true)
+  }
+
+  const handleVisibilityModalOk = async () => {
+    if (!editingVisibilityJob) return
+    try {
+      const values = await visibilityForm.validateFields()
+      const update: JobVisibilityUpdate = {}
+      if (values.is_public !== editingVisibilityJob.is_public) {
+        update.is_public = values.is_public
+      }
+      // 只有管理员可以修改 visible_to_user_ids
+      if (currentUser?.is_superuser) {
+        update.visible_to_user_ids = values.visible_to_user_ids || []
+      }
+      if (Object.keys(update).length > 0) {
+        updateJobVisibilityMutation.mutate({ id: editingVisibilityJob.id, visibility: update })
+      } else {
+        setVisibilityModalVisible(false)
+      }
+    } catch (error) {
+      console.error('表单验证失败:', error)
+    }
+  }
+
+  const handleVisibilityModalCancel = () => {
+    setVisibilityModalVisible(false)
+    setEditingVisibilityJob(null)
+    visibilityForm.resetFields()
+  }
+
   const handleCopy = async (text: string) => {
     if (!text) return
     try {
@@ -199,6 +271,29 @@ const JobsPage = () => {
           />
         </div>
       )
+    },
+    {
+      title: '可见性',
+      key: 'visibility',
+      width: 120,
+      render: (_: any, record: Job) => {
+        const isPublic = record.is_public ?? false
+        let visibleUserIds: number[] = []
+        try {
+          visibleUserIds = record.visible_to_user_ids ? JSON.parse(record.visible_to_user_ids) : []
+        } catch (e) {
+          console.error('解析 visible_to_user_ids 失败:', e, record.visible_to_user_ids)
+        }
+        const hasCustomVisibility = visibleUserIds.length > 0
+        
+        if (isPublic) {
+          return <Tag color="green">公开</Tag>
+        } else if (hasCustomVisibility) {
+          return <Tag color="orange">授权用户</Tag>
+        } else {
+          return <Tag color="default">私有</Tag>
+        }
+      },
     },
     { 
       title: '状态', 
@@ -269,19 +364,30 @@ const JobsPage = () => {
     { 
       title: '操作', 
       key: 'action',
-      width: 150,
+      width: 200,
       fixed: 'right' as const,
       render: (_: any, record: Job) => (
-        <>
+        <Space>
           <Button 
             type="link" 
             danger 
             size="small" 
             onClick={() => handleTerminate(record)}
-            style={{ padding: 0, marginRight: 8 }}
+            style={{ padding: 0 }}
           >
             终止
           </Button>
+          {(currentUser?.id === record.owner_id || currentUser?.is_superuser) && (
+            <Button
+              type="link"
+              size="small"
+              icon={<SettingOutlined />}
+              onClick={() => handleEditVisibility(record)}
+              style={{ padding: 0 }}
+            >
+              可见性
+            </Button>
+          )}
           {currentUser?.is_superuser && (
             <Popconfirm
               title="确定要删除这个任务吗？"
@@ -302,7 +408,7 @@ const JobsPage = () => {
               </Button>
             </Popconfirm>
           )}
-        </>
+        </Space>
       )
     }
   ]
@@ -412,6 +518,45 @@ const JobsPage = () => {
               rows={4}
             />
           </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 可见性管理 Modal */}
+      <Modal
+        title="管理可见性"
+        open={visibilityModalVisible}
+        onOk={handleVisibilityModalOk}
+        onCancel={handleVisibilityModalCancel}
+        okText="确定"
+        cancelText="取消"
+        confirmLoading={updateJobVisibilityMutation.isLoading}
+        width={600}
+      >
+        <Form form={visibilityForm} layout="vertical">
+          <Form.Item 
+            label="公开" 
+            name="is_public"
+            tooltip="设置为公开后，所有用户都可以查看此任务"
+          >
+            <Switch checkedChildren="公开" unCheckedChildren="私有" />
+          </Form.Item>
+          {currentUser?.is_superuser && (
+            <Form.Item 
+              label="授权用户" 
+              name="visible_to_user_ids"
+              tooltip="管理员可以指定特定用户可见此任务（即使不是公开的）"
+            >
+              <Select
+                mode="multiple"
+                placeholder="选择可以查看此任务的用户"
+                options={allUsers?.map(user => ({ 
+                  label: `${user.full_name || user.email} (ID: ${user.id})`, 
+                  value: user.id 
+                }))}
+                allowClear
+              />
+            </Form.Item>
+          )}
         </Form>
       </Modal>
     </>

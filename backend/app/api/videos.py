@@ -1,4 +1,5 @@
 import io
+import json
 import zipfile
 from datetime import datetime
 from typing import List
@@ -8,6 +9,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import or_
 
 from app.api import deps
 from app.core.config import settings
@@ -22,6 +24,7 @@ from app.schemas.video import (
     VideoDownloadRequest,
     VideoDownloadResponse,
     FileDownloadInfo,
+    VideoVisibilityUpdate,
 )
 from app.utils.storage import (
     generate_tos_post_form_data,
@@ -34,15 +37,68 @@ from app.utils.video_metadata import get_video_metadata_from_file
 router = APIRouter(prefix="/videos", tags=["videos"])
 
 
+def parse_visible_user_ids(visible_to_user_ids: str) -> List[int]:
+    """解析 visible_to_user_ids JSON 字符串为整数列表"""
+    if not visible_to_user_ids:
+        return []
+    try:
+        return json.loads(visible_to_user_ids)
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def can_user_view_video(video: Video, user: User) -> bool:
+    """检查用户是否有权限查看视频"""
+    # 管理员可以看到所有视频
+    if user.is_superuser:
+        return True
+    
+    # 所有者总是可以看到自己的视频
+    if video.owner_id == user.id:
+        return True
+    
+    # 检查是否是公开的视频
+    if video.is_public:
+        return True
+    
+    # 检查管理员授权的用户列表
+    if video.visible_to_user_ids:
+        visible_ids = parse_visible_user_ids(video.visible_to_user_ids)
+        if user.id in visible_ids:
+            return True
+    
+    return False
+
+
 @router.get("/", response_model=List[VideoRead])
 def list_videos(
     db: Session = Depends(get_db), current_user: User = Depends(deps.get_current_active_user)
 ):
-    # 管理员可以看到所有视频，普通用户只能看到自己的视频
+    """列出用户有权限查看的视频"""
+    query = db.query(Video).options(joinedload(Video.owner))
+    
+    # 管理员可以看到所有视频
     if current_user.is_superuser:
-        return db.query(Video).options(joinedload(Video.owner)).all()
+        videos = query.all()
     else:
-        return db.query(Video).options(joinedload(Video.owner)).filter(Video.owner_id == current_user.id).all()
+        # 普通用户只能看到：自己的视频、公开的视频、或管理员授权的视频
+        # 由于 SQLite 不支持 JSON 查询，我们需要先获取所有可能的数据，然后在 Python 中过滤
+        # 或者使用更简单的 SQL 查询：owner_id == current_user.id OR is_public == True
+        # 对于 visible_to_user_ids，我们先用 SQL 过滤掉明显不符合的，然后在 Python 中检查 JSON
+        
+        # 先获取可能可见的视频：自己的或公开的
+        potential_videos = query.filter(
+            or_(
+                Video.owner_id == current_user.id,
+                Video.is_public == True,
+                Video.visible_to_user_ids.isnot(None)  # 可能有管理员授权的
+            )
+        ).all()
+        
+        # 在 Python 中过滤出真正可见的视频
+        videos = [v for v in potential_videos if can_user_view_video(v, current_user)]
+    
+    return videos
 
 
 @router.post("/upload", response_model=VideoRead)
@@ -176,9 +232,15 @@ def get_video(
     db: Session = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user),
 ):
-    video = db.query(Video).options(joinedload(Video.owner)).filter(Video.id == video_id, Video.owner_id == current_user.id).first()
+    """获取视频详情（需要权限检查）"""
+    video = db.query(Video).options(joinedload(Video.owner)).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+    
+    # 检查权限
+    if not can_user_view_video(video, current_user):
+        raise HTTPException(status_code=403, detail="You don't have permission to view this video")
+    
     return video
 
 
@@ -268,9 +330,13 @@ def mark_video_ready(
     current_user: User = Depends(deps.get_current_active_user),
 ):
     """前端在确认所有文件上传完成后调用，将视频记录标记为 ready。"""
-    video = db.query(Video).filter(Video.id == video_id, Video.owner_id == current_user.id).first()
+    video = db.query(Video).options(joinedload(Video.owner)).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+    
+    # 只有所有者可以标记视频为 ready
+    if video.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the owner can mark video as ready")
 
     # TODO: 未来可以在这里对 TOS 做一次 HEAD Object 校验，确认对象存在
     video.status = "ready"
@@ -289,9 +355,13 @@ def mark_video_failed(
     current_user: User = Depends(deps.get_current_active_user),
 ):
     """前端在上传失败时调用，将视频记录标记为 failed。"""
-    video = db.query(Video).filter(Video.id == video_id, Video.owner_id == current_user.id).first()
+    video = db.query(Video).options(joinedload(Video.owner)).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+    
+    # 只有所有者可以标记视频为 failed
+    if video.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the owner can mark video as failed")
 
     video.status = "failed"
     db.add(video)
@@ -310,9 +380,13 @@ def update_video(
     current_user: User = Depends(deps.get_current_active_user),
 ):
     """更新视频的基本信息（摄影棚、制片方、制作、动作）"""
-    video = db.query(Video).filter(Video.id == video_id, Video.owner_id == current_user.id).first()
+    video = db.query(Video).options(joinedload(Video.owner)).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+    
+    # 只有所有者可以更新视频信息
+    if video.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the owner can update video")
 
     # 只更新提供的字段
     if video_update.studio is not None:
@@ -377,9 +451,13 @@ def download_video_zip(
     将选定类型的所有文件打包为 ZIP 并返回（流式响应）。
     ZIP 内部目录格式: v3d_data_YYYYMMDD_hhmmss/<file_type>/<filename>
     """
-    video = db.query(Video).filter(Video.id == video_id, Video.owner_id == current_user.id).first()
+    video = db.query(Video).options(joinedload(Video.owner)).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+    
+    # 检查权限：只有可见的视频才能下载
+    if not can_user_view_video(video, current_user):
+        raise HTTPException(status_code=403, detail="You don't have permission to download this video")
     
     # 提取 UUID 目录路径
     tos_path = video.tos_path
@@ -452,3 +530,42 @@ def download_video_zip(
         "Content-Disposition": f'attachment; filename="{zip_filename}"'
     }
     return StreamingResponse(zip_generator(), media_type="application/zip", headers=headers)
+
+
+@router.patch("/{video_id}/visibility", response_model=VideoRead)
+def update_video_visibility(
+    video_id: int,
+    visibility_update: VideoVisibilityUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """更新视频的可见性设置"""
+    video = db.query(Video).options(joinedload(Video.owner)).filter(Video.id == video_id).first()
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    
+    # 所有者可以修改 is_public，管理员可以修改所有可见性属性
+    if video.owner_id != current_user.id and not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Only the owner or admin can update visibility")
+    
+    # 所有者只能修改 is_public
+    if video.owner_id == current_user.id and not current_user.is_superuser:
+        if visibility_update.visible_to_user_ids is not None:
+            raise HTTPException(status_code=403, detail="Only admin can set visible_to_user_ids")
+        if visibility_update.is_public is not None:
+            video.is_public = visibility_update.is_public
+    else:
+        # 管理员可以修改所有属性
+        if visibility_update.is_public is not None:
+            video.is_public = visibility_update.is_public
+        if visibility_update.visible_to_user_ids is not None:
+            # 将列表转换为 JSON 字符串
+            if visibility_update.visible_to_user_ids:
+                video.visible_to_user_ids = json.dumps(visibility_update.visible_to_user_ids)
+            else:
+                video.visible_to_user_ids = None
+    
+    db.add(video)
+    db.commit()
+    db.refresh(video)
+    return video

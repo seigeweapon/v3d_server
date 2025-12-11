@@ -17,6 +17,8 @@ export interface Video {
   video_format: string
   tos_path: string
   status: string
+  is_public: boolean
+  visible_to_user_ids?: string | null
   created_at: string
   // 仅在创建时返回的 PostObject 表单数据
   post_form_data_list?: Array<{
@@ -134,4 +136,14 @@ export async function downloadVideoZip(
   }
 
   return { blob: response.data, filename }
+}
+
+export interface VideoVisibilityUpdate {
+  is_public?: boolean
+  visible_to_user_ids?: number[]
+}
+
+export async function updateVideoVisibility(id: number, updates: VideoVisibilityUpdate) {
+  const { data } = await client.patch<Video>(`/videos/${id}/visibility`, updates)
+  return data
 }

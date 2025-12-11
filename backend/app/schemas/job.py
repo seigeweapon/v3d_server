@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 from pydantic import BaseModel
 
@@ -21,6 +21,8 @@ class JobRead(JobBase):
     status: str
     tos_path: Optional[str]
     notes: Optional[str]
+    is_public: bool = False
+    visible_to_user_ids: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -38,3 +40,9 @@ class JobRead(JobBase):
 class JobUpdate(BaseModel):
     """任务更新请求，目前只允许更新备注"""
     notes: Optional[str] = None
+
+
+class JobVisibilityUpdate(BaseModel):
+    """任务可见性更新请求"""
+    is_public: Optional[bool] = None
+    visible_to_user_ids: Optional[List[int]] = None

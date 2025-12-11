@@ -51,6 +51,12 @@ class VideoUpdate(BaseModel):
     action: Optional[str] = None
 
 
+class VideoVisibilityUpdate(BaseModel):
+    """视频可见性更新请求"""
+    is_public: Optional[bool] = None
+    visible_to_user_ids: Optional[List[int]] = None
+
+
 class VideoDownloadRequest(BaseModel):
     """视频下载请求，指定要下载的文件类型"""
     file_types: List[str]  # 例如: ["video", "background", "calibration"]
@@ -86,6 +92,8 @@ class VideoRead(BaseModel):
     id: int
     owner_id: int
     owner_full_name: Optional[str] = None
+    is_public: bool = False
+    visible_to_user_ids: Optional[str] = None
     created_at: datetime
     # 仅在创建时返回的 PostObject 表单数据（用于浏览器表单上传，可绕过 CORS）
     # 如果上传多个文件，这是一个列表，每个元素对应一个文件的表单数据

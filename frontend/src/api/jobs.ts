@@ -9,7 +9,14 @@ export interface Job {
   parameters?: string
   tos_path?: string
   notes?: string
+  is_public: boolean
+  visible_to_user_ids?: string | null
   created_at: string
+}
+
+export interface JobVisibilityUpdate {
+  is_public?: boolean
+  visible_to_user_ids?: number[]
 }
 
 export async function fetchJobs() {
@@ -29,5 +36,10 @@ export async function updateJobNotes(id: number, notes: string) {
 
 export async function deleteJob(id: number) {
   const { data } = await client.delete(`/jobs/${id}`)
+  return data
+}
+
+export async function updateJobVisibility(id: number, updates: JobVisibilityUpdate) {
+  const { data } = await client.patch<Job>(`/jobs/${id}/visibility`, updates)
   return data
 }

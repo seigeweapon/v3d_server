@@ -1,7 +1,8 @@
-import { Card, Table, Button, Modal, message, Tag, Popconfirm, Progress, Tooltip, Form, Input, Space, Descriptions, Checkbox } from 'antd'
-import { PlusOutlined, CopyOutlined, DeleteOutlined, EditOutlined, CloseOutlined, EyeOutlined, DownloadOutlined } from '@ant-design/icons'
+import { Card, Table, Button, Modal, message, Tag, Popconfirm, Progress, Tooltip, Form, Input, Space, Descriptions, Checkbox, Switch, Select } from 'antd'
+import { PlusOutlined, CopyOutlined, DeleteOutlined, EditOutlined, CloseOutlined, EyeOutlined, DownloadOutlined, SettingOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
-import { fetchVideos, Video, uploadVideo, deleteVideo, markVideoReady, markVideoFailed, updateVideo, extractVideoMetadata, downloadVideoZip } from '../api/videos'
+import { fetchVideos, Video, uploadVideo, deleteVideo, markVideoReady, markVideoFailed, updateVideo, extractVideoMetadata, downloadVideoZip, updateVideoVisibility, VideoVisibilityUpdate } from '../api/videos'
+import { fetchUsers, User } from '../api/users'
 import { getCurrentUser } from '../api/users'
 import { useRef, useState, useEffect } from 'react'
 import { getVideoMetadata, calculateFrameCount, getVideoFormat } from '../utils/videoMetadata'
@@ -60,6 +61,9 @@ const VideosPage = () => {
   const [downloadingVideo, setDownloadingVideo] = useState<Video | null>(null)
   const [selectedFileTypes, setSelectedFileTypes] = useState<string[]>(['video', 'background', 'calibration'])
   const [downloading, setDownloading] = useState(false)
+  const [visibilityModalVisible, setVisibilityModalVisible] = useState(false)
+  const [editingVisibilityVideo, setEditingVisibilityVideo] = useState<Video | null>(null)
+  const [visibilityForm] = Form.useForm()
 
   const { data: videos, isLoading: videosLoading } = useQuery<Video[]>(['videos'], fetchVideos, {
     staleTime: 5 * 60 * 1000,
@@ -67,6 +71,12 @@ const VideosPage = () => {
   })
 
   const { data: currentUser } = useQuery(['currentUser'], getCurrentUser, {
+    staleTime: 5 * 60 * 1000,
+    refetchOnMount: false,
+  })
+
+  const { data: allUsers } = useQuery<User[]>(['users'], fetchUsers, {
+    enabled: !!currentUser?.is_superuser, // 只有管理员才需要获取用户列表
     staleTime: 5 * 60 * 1000,
     refetchOnMount: false,
   })
@@ -85,6 +95,26 @@ const VideosPage = () => {
         const errorMessage = error?.response?.data?.detail || error?.message || '删除失败'
         message.error(`删除失败: ${errorMessage}`)
         console.error('删除视频失败:', error)
+      }
+    }
+  )
+
+  const updateVideoVisibilityMutation = useMutation(
+    async (payload: { id: number; visibility: VideoVisibilityUpdate }) => {
+      await updateVideoVisibility(payload.id, payload.visibility)
+    },
+    {
+      onSuccess: () => {
+        message.success('可见性设置更新成功')
+        queryClient.invalidateQueries(['videos'])
+        setVisibilityModalVisible(false)
+        setEditingVisibilityVideo(null)
+        visibilityForm.resetFields()
+      },
+      onError: (error: any) => {
+        const errorMessage = error?.response?.data?.detail || error?.message || '更新失败'
+        message.error(`更新失败: ${errorMessage}`)
+        console.error('更新可见性失败:', error)
       }
     }
   )
@@ -502,6 +532,49 @@ const VideosPage = () => {
     setSelectedFileTypes(['video', 'background', 'calibration'])
   }
 
+  const handleEditVisibility = (video: Video) => {
+    setEditingVisibilityVideo(video)
+    let visibleUserIds: number[] = []
+    try {
+      visibleUserIds = video.visible_to_user_ids ? JSON.parse(video.visible_to_user_ids) : []
+    } catch (e) {
+      console.error('解析 visible_to_user_ids 失败:', e, video.visible_to_user_ids)
+    }
+    visibilityForm.setFieldsValue({
+      is_public: video.is_public,
+      visible_to_user_ids: visibleUserIds,
+    })
+    setVisibilityModalVisible(true)
+  }
+
+  const handleVisibilityModalOk = async () => {
+    if (!editingVisibilityVideo) return
+    try {
+      const values = await visibilityForm.validateFields()
+      const update: VideoVisibilityUpdate = {}
+      if (values.is_public !== editingVisibilityVideo.is_public) {
+        update.is_public = values.is_public
+      }
+      // 只有管理员可以修改 visible_to_user_ids
+      if (currentUser?.is_superuser) {
+        update.visible_to_user_ids = values.visible_to_user_ids || []
+      }
+      if (Object.keys(update).length > 0) {
+        updateVideoVisibilityMutation.mutate({ id: editingVisibilityVideo.id, visibility: update })
+      } else {
+        setVisibilityModalVisible(false)
+      }
+    } catch (error) {
+      console.error('表单验证失败:', error)
+    }
+  }
+
+  const handleVisibilityModalCancel = () => {
+    setVisibilityModalVisible(false)
+    setEditingVisibilityVideo(null)
+    visibilityForm.resetFields()
+  }
+
   const handleVideoFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const fileList = event.target.files
     if (!fileList || fileList.length === 0) {
@@ -606,6 +679,29 @@ const VideosPage = () => {
       },
     },
     {
+      title: '可见性',
+      key: 'visibility',
+      width: 120,
+      render: (_: any, record: Video) => {
+        const isPublic = record.is_public ?? false
+        let visibleUserIds: number[] = []
+        try {
+          visibleUserIds = record.visible_to_user_ids ? JSON.parse(record.visible_to_user_ids) : []
+        } catch (e) {
+          console.error('解析 visible_to_user_ids 失败:', e, record.visible_to_user_ids)
+        }
+        const hasCustomVisibility = visibleUserIds.length > 0
+        
+        if (isPublic) {
+          return <Tag color="green">公开</Tag>
+        } else if (hasCustomVisibility) {
+          return <Tag color="orange">授权用户</Tag>
+        } else {
+          return <Tag color="default">私有</Tag>
+        }
+      },
+    },
+    {
       title: 'TOS路径',
       dataIndex: 'tos_path',
       ellipsis: true,
@@ -663,6 +759,16 @@ const VideosPage = () => {
           >
             下载
           </Button>
+          {(currentUser?.id === record.owner_id || currentUser?.is_superuser) && (
+            <Button
+              type="text"
+              icon={<SettingOutlined />}
+              size="small"
+              onClick={() => handleEditVisibility(record)}
+            >
+              可见性
+            </Button>
+          )}
           {currentUser?.is_superuser && (
             <Popconfirm
               title="确定要删除这条视频数据吗？"
@@ -1042,8 +1148,47 @@ const VideosPage = () => {
           <div>1. 确认后会将选中文件类型下的<strong>所有文件打包成一个 ZIP</strong> 并下载</div>
           <div>2. ZIP 内部目录：v3d_data_YYYYMMDD_hhmmss/&lt;类型&gt;/文件名</div>
           <div>3. 文件会保存到浏览器的<strong>默认下载目录</strong>（无法自定义路径，这是浏览器的安全限制）</div>
-          <div>4. 如下载被拦截，请在浏览器提示中选择“允许下载”或检查下载设置</div>
+          <div>4. 如下载被拦截，请在浏览器提示中选择"允许下载"或检查下载设置</div>
         </div>
+      </Modal>
+
+      {/* 可见性管理 Modal */}
+      <Modal
+        title="管理可见性"
+        open={visibilityModalVisible}
+        onOk={handleVisibilityModalOk}
+        onCancel={handleVisibilityModalCancel}
+        okText="确定"
+        cancelText="取消"
+        confirmLoading={updateVideoVisibilityMutation.isLoading}
+        width={600}
+      >
+        <Form form={visibilityForm} layout="vertical">
+          <Form.Item 
+            label="公开" 
+            name="is_public"
+            tooltip="设置为公开后，所有用户都可以查看此视频"
+          >
+            <Switch checkedChildren="公开" unCheckedChildren="私有" />
+          </Form.Item>
+          {currentUser?.is_superuser && (
+            <Form.Item 
+              label="授权用户" 
+              name="visible_to_user_ids"
+              tooltip="管理员可以指定特定用户可见此视频（即使不是公开的）"
+            >
+              <Select
+                mode="multiple"
+                placeholder="选择可以查看此视频的用户"
+                options={allUsers?.map(user => ({ 
+                  label: `${user.full_name || user.email} (ID: ${user.id})`, 
+                  value: user.id 
+                }))}
+                allowClear
+              />
+            </Form.Item>
+          )}
+        </Form>
       </Modal>
     </div>
   )

@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, Float, String, Text, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, Float, String, Text, ForeignKey, DateTime, Boolean
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -23,6 +23,8 @@ class Video(Base):
     video_format = Column(String, nullable=False)
     tos_path = Column(String, nullable=False)
     status = Column(String, nullable=False, default="uploading", comment="状态: uploading/ready/failed")
+    is_public = Column(Boolean, default=False, nullable=False, comment="是否公开")
+    visible_to_user_ids = Column(Text, nullable=True, comment="管理员指定的可见用户ID列表，JSON格式")
     created_at = Column(DateTime, default=datetime.utcnow)
 
     owner = relationship("User", backref="videos")
