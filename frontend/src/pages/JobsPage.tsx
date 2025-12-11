@@ -1,18 +1,21 @@
 import { useState } from 'react'
 import { Button, Card, Form, Input, Select, Table, Tag, message, Tooltip, Modal, Popconfirm } from 'antd'
-import { CopyOutlined, PlusOutlined } from '@ant-design/icons'
+import { CopyOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchVideos, Video } from '../api/videos'
-import { createJob, fetchJobs, deleteJob, Job } from '../api/jobs'
+import { createJob, fetchJobs, deleteJob, updateJobNotes, Job } from '../api/jobs'
 
 const JobsPage = () => {
   const { data: videos } = useQuery(['videos'], fetchVideos)
   const { data: jobs } = useQuery(['jobs'], fetchJobs)
   const queryClient = useQueryClient()
   const [createModalVisible, setCreateModalVisible] = useState(false)
+  const [editNotesModalVisible, setEditNotesModalVisible] = useState(false)
+  const [editingJob, setEditingJob] = useState<Job | null>(null)
   const [jobForm] = Form.useForm()
+  const [notesForm] = Form.useForm()
 
-  const mutation = useMutation((params: { video_id: number; parameters?: string }) => createJob(params.video_id, params.parameters), {
+  const mutation = useMutation((params: { video_id: number; parameters?: string; notes?: string }) => createJob(params.video_id, params.parameters, params.notes), {
     onSuccess: () => {
       message.success('任务已创建')
       queryClient.invalidateQueries(['jobs'])
@@ -35,6 +38,26 @@ const JobsPage = () => {
         const errorMessage = error?.response?.data?.detail || error?.message || '删除失败'
         message.error(`删除失败: ${errorMessage}`)
         console.error('删除任务失败:', error)
+      }
+    }
+  )
+
+  const updateNotesMutation = useMutation(
+    async (params: { id: number; notes: string }) => {
+      await updateJobNotes(params.id, params.notes)
+    },
+    {
+      onSuccess: () => {
+        message.success('备注更新成功')
+        queryClient.invalidateQueries(['jobs'])
+        setEditNotesModalVisible(false)
+        setEditingJob(null)
+        notesForm.resetFields()
+      },
+      onError: (error: any) => {
+        const errorMessage = error?.response?.data?.detail || error?.message || '更新失败'
+        message.error(`更新失败: ${errorMessage}`)
+        console.error('更新备注失败:', error)
       }
     }
   )
@@ -85,6 +108,30 @@ const JobsPage = () => {
     deleteJobMutation.mutate(job.id)
   }
 
+  const handleEditNotes = (job: Job) => {
+    setEditingJob(job)
+    notesForm.setFieldsValue({ notes: job.notes || '' })
+    setEditNotesModalVisible(true)
+  }
+
+  const handleNotesModalOk = () => {
+    if (!editingJob) return
+    notesForm.validateFields().then((values) => {
+      updateNotesMutation.mutate({ 
+        id: editingJob.id, 
+        notes: values.notes || '' 
+      })
+    }).catch(() => {
+      // 验证失败，不执行任何操作
+    })
+  }
+
+  const handleNotesModalCancel = () => {
+    setEditNotesModalVisible(false)
+    setEditingJob(null)
+    notesForm.resetFields()
+  }
+
   const handleCopy = async (text: string) => {
     if (!text) return
     try {
@@ -119,6 +166,27 @@ const JobsPage = () => {
       key: 'video_info',
       render: (_: any, record: Job) => formatVideoInfo(record.video_id),
       ellipsis: true
+    },
+    { 
+      title: '备注', 
+      dataIndex: 'notes',
+      ellipsis: true,
+      render: (text: string, record: Job) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Tooltip title={text || '-'} placement="topLeft">
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {text || '-'}
+            </span>
+          </Tooltip>
+          <Button
+            type="text"
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => handleEditNotes(record)}
+            style={{ flexShrink: 0 }}
+          />
+        </div>
+      )
     },
     { 
       title: '状态', 
@@ -233,7 +301,8 @@ const JobsPage = () => {
     jobForm.validateFields().then((values) => {
       mutation.mutate({ 
         video_id: values.video_id, 
-        parameters: values.parameters 
+        parameters: values.parameters,
+        notes: values.notes
       })
     }).catch(() => {
       // 验证失败，不执行任何操作
@@ -293,6 +362,39 @@ const JobsPage = () => {
           >
             <Input.TextArea 
               placeholder="自定义 JSON 或文本" 
+              rows={4}
+            />
+          </Form.Item>
+          <Form.Item 
+            label="备注" 
+            name="notes"
+          >
+            <Input.TextArea 
+              placeholder="请输入备注信息" 
+              rows={3}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 编辑备注 Modal */}
+      <Modal
+        title="编辑备注"
+        open={editNotesModalVisible}
+        onOk={handleNotesModalOk}
+        onCancel={handleNotesModalCancel}
+        okText="确定"
+        cancelText="取消"
+        confirmLoading={updateNotesMutation.isLoading}
+        width={500}
+      >
+        <Form form={notesForm} layout="vertical">
+          <Form.Item 
+            label="备注" 
+            name="notes"
+          >
+            <Input.TextArea 
+              placeholder="请输入备注信息" 
               rows={4}
             />
           </Form.Item>

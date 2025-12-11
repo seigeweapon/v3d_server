@@ -11,7 +11,7 @@ from app.database import get_db
 from app.models.job import Job
 from app.models.video import Video
 from app.models.user import User
-from app.schemas.job import JobCreate, JobRead
+from app.schemas.job import JobCreate, JobRead, JobUpdate
 from app.services import tasks
 from app.utils.storage import delete_tos_objects_by_prefix
 
@@ -44,6 +44,7 @@ def create_job(
         video_id=job_in.video_id,
         owner_id=current_user.id,
         parameters=job_in.parameters,
+        notes=job_in.notes,
         status="pending",
         tos_path=tos_path,
     )
@@ -121,3 +122,25 @@ def delete_job(
         )
     
     return {"ok": True}
+
+
+@router.patch("/{job_id}", response_model=JobRead)
+def update_job(
+    job_id: int,
+    job_update: JobUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """更新任务的备注"""
+    job = db.query(Job).filter(Job.id == job_id, Job.owner_id == current_user.id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    # 只更新提供的字段
+    if job_update.notes is not None:
+        job.notes = job_update.notes
+
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    return job

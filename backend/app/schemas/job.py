@@ -7,6 +7,7 @@ from pydantic import BaseModel
 class JobBase(BaseModel):
     video_id: int
     parameters: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class JobCreate(JobBase):
@@ -18,7 +19,13 @@ class JobRead(JobBase):
     owner_id: int
     status: str
     tos_path: Optional[str]
+    notes: Optional[str]
     created_at: datetime
 
     class Config:
         orm_mode = True
+
+
+class JobUpdate(BaseModel):
+    """任务更新请求，目前只允许更新备注"""
+    notes: Optional[str] = None

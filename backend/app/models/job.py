@@ -14,6 +14,7 @@ class Job(Base):
     status = Column(String, default="pending")
     parameters = Column(Text, nullable=True)
     tos_path = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     video = relationship("Video", backref="jobs")

@@ -6,6 +6,7 @@ export interface Job {
   status: string
   parameters?: string
   tos_path?: string
+  notes?: string
   created_at: string
 }
 
@@ -14,8 +15,13 @@ export async function fetchJobs() {
   return data
 }
 
-export async function createJob(video_id: number, parameters?: string) {
-  const { data } = await client.post<Job>('/jobs/', { video_id, parameters })
+export async function createJob(video_id: number, parameters?: string, notes?: string) {
+  const { data } = await client.post<Job>('/jobs/', { video_id, parameters, notes })
+  return data
+}
+
+export async function updateJobNotes(id: number, notes: string) {
+  const { data } = await client.patch<Job>(`/jobs/${id}`, { notes })
   return data
 }
 
