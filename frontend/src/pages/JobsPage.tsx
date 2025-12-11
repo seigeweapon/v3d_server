@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Button, Card, Form, Input, Select, Table, Tag, message, Tooltip, Modal, Popconfirm, Switch, Space } from 'antd'
-import { CopyOutlined, PlusOutlined, EditOutlined, SettingOutlined } from '@ant-design/icons'
+import { CopyOutlined, PlusOutlined, EditOutlined, SettingOutlined, StopOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchVideos, Video } from '../api/videos'
 import { createJob, fetchJobs, deleteJob, updateJobNotes, Job, updateJobVisibility, JobVisibilityUpdate } from '../api/jobs'
@@ -364,30 +364,29 @@ const JobsPage = () => {
     { 
       title: '操作', 
       key: 'action',
-      width: 200,
+      width: 280,
       fixed: 'right' as const,
       render: (_: any, record: Job) => (
         <Space>
-          <Button 
-            type="link" 
-            danger 
-            size="small" 
-            onClick={() => handleTerminate(record)}
-            style={{ padding: 0 }}
-          >
-            终止
-          </Button>
           {(currentUser?.id === record.owner_id || currentUser?.is_superuser) && (
             <Button
-              type="link"
+              type="text"
               size="small"
               icon={<SettingOutlined />}
               onClick={() => handleEditVisibility(record)}
-              style={{ padding: 0 }}
             >
               可见性
             </Button>
           )}
+          <Button 
+            type="text" 
+            danger 
+            size="small" 
+            icon={<StopOutlined />}
+            onClick={() => handleTerminate(record)}
+          >
+            终止
+          </Button>
           {currentUser?.is_superuser && (
             <Popconfirm
               title="确定要删除这个任务吗？"
@@ -398,11 +397,11 @@ const JobsPage = () => {
               okButtonProps={{ danger: true }}
             >
               <Button 
-                type="link" 
+                type="text" 
                 danger 
                 size="small" 
+                icon={<DeleteOutlined />}
                 loading={deleteJobMutation.isLoading}
-                style={{ padding: 0 }}
               >
                 删除
               </Button>
@@ -448,7 +447,12 @@ const JobsPage = () => {
           </Button>
         }
       >
-        <Table dataSource={jobs} columns={columns} rowKey="id" />
+        <Table 
+          dataSource={jobs} 
+          columns={columns} 
+          rowKey="id" 
+          scroll={{ x: 'max-content' }}
+        />
       </Card>
 
       {/* 创建任务 Modal */}

@@ -733,6 +733,7 @@ const VideosPage = () => {
     {      title: '操作',
       key: 'action',
       width: 200,
+      fixed: 'right' as const,
       render: (_: any, record: Video) => (
         <Space>
           <Button
