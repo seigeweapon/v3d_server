@@ -955,7 +955,7 @@ const VideosPage = () => {
             关闭
           </Button>
         ]}
-        width={700}
+        width={800}
       >
         {detailVideo && (
           <Descriptions column={1} bordered>
