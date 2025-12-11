@@ -621,11 +621,9 @@ const VideosPage = () => {
       width: 180,
       render: (created_at: string) => formatLocalDateTime(created_at),
     },
-    {
-      title: '操作',
+    {      title: '操作',
       key: 'action',
       width: 200,
-      fixed: 'right' as const,
       render: (_: any, record: Video) => (
         <Space>
           <Button
@@ -696,7 +694,8 @@ const VideosPage = () => {
           dataSource={videos}
           columns={videoColumns}
           rowKey="id"
-          scroll={{ x: 1500 }}
+          scroll={{ x: 'max-content' }}
+          style={{ width: '100%' }}
         />
       </Card>
 
