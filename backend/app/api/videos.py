@@ -51,13 +51,13 @@ def upload_video(
     # 生成 UUID 作为目录名
     uuid_dir = str(uuid4())
     
-    # 生成 TOS 路径前缀：<tos_key_prefix>/<uuid>/video（用于数据库存储，不包含文件名）
-    # 注意：对象存储的 key 不包含 schema，形如 "<tos_key_prefix>/<uuid>/video"
+    # 生成 TOS 路径前缀：<tos_key_prefix>/<uuid>（用于数据库存储）
+    # 注意：uuid 层级之下会有多个文件夹：video、background、calibration
     key_prefix = settings.tos_key_prefix.rstrip("/")
-    uuid_path = f"{key_prefix}/{uuid_dir}/video"
+    uuid_path = f"{key_prefix}/{uuid_dir}"
     
-    # 用于写入数据库/展示的 tos_path，可包含 bucket 信息（只到 UUID 目录，不包含文件名）
-    tos_path = f"tos://{settings.tos_bucket}/{uuid_path}"
+    # 用于写入数据库/展示的 tos_path，可包含 bucket 信息（只到 UUID 目录）
+    tos_path = f"tos://{settings.tos_bucket}/{uuid_path}/"
     
     # 计算相机数：如果提供了 camera_count 则使用，否则从 file_infos 中统计视频文件数量
     if video_in.camera_count is not None:
@@ -135,7 +135,7 @@ def upload_video(
             post_form_data_list.append(post_form_data)
     else:
         # 如果没有提供文件信息，生成一个占位表单数据
-        object_key = f"{uuid_path}/placeholder"
+        object_key = f"{key_prefix}/{uuid_dir}/placeholder"
         post_form_data = generate_tos_post_form_data(object_key)
         post_form_data_list.append(post_form_data)
     
@@ -222,24 +222,18 @@ def delete_video(
         raise HTTPException(status_code=404, detail="Video not found")
     
     # 从 tos_path 中提取路径前缀（去掉 tos://bucket/ 前缀）
-    # tos_path 格式: tos://{bucket}/{prefix}/{uuid}/video
+    # tos_path 格式: tos://{bucket}/{prefix}/{uuid}/
     tos_path = video.tos_path
     if tos_path.startswith("tos://"):
         path_without_schema = tos_path[6:]  # 去掉 "tos://"
         # 提取 bucket 后面的路径
         if "/" in path_without_schema:
             bucket, path_after_bucket = path_without_schema.split("/", 1)
-            # 路径格式：<tos_key_prefix>/<uuid>/video，需要提取到 UUID 目录
-            # 去掉最后的 /video 部分，得到 <tos_key_prefix>/<uuid>
-            if path_after_bucket.endswith("/video"):
-                uuid_path = path_after_bucket[:-6]  # 去掉 "/video"
-            else:
-                # 兼容旧格式，直接使用完整路径
-                uuid_path = path_after_bucket
+            uuid_path = path_after_bucket.rstrip("/")
         else:
             raise HTTPException(status_code=400, detail="Invalid tos_path format")
     else:
-        uuid_path = tos_path
+        uuid_path = tos_path.rstrip("/")
     
     # 确保路径以 / 结尾，以便列出该目录下的所有文件（包括 video、background、calibration 子目录）
     prefix = uuid_path.rstrip("/") + "/"
@@ -402,14 +396,11 @@ def download_video_zip(
         path_without_schema = tos_path[6:]
         if "/" in path_without_schema:
             _, path_after_bucket = path_without_schema.split("/", 1)
-            if path_after_bucket.endswith("/video"):
-                uuid_path = path_after_bucket[:-6]
-            else:
-                uuid_path = path_after_bucket
+            uuid_path = path_after_bucket.rstrip("/")
         else:
             raise HTTPException(status_code=400, detail="Invalid tos_path format")
     else:
-        uuid_path = tos_path
+        uuid_path = tos_path.rstrip("/")
     
     valid_file_types = {"video", "background", "calibration"}
     requested_types = set(download_request.file_types)
