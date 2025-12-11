@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Card, Table, Button, Modal, message, Tag, Popconfirm, Form, Input, Space, Checkbox } from 'antd'
+import { Card, Table, Button, Modal, message, Tag, Popconfirm, Form, Input, Space, Checkbox, Tooltip } from 'antd'
 import { PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
@@ -234,24 +234,38 @@ const UsersManagementPage = () => {
           >
             编辑
           </Button>
-          <Popconfirm
-            title="确定要删除这个用户吗？"
-            description="删除后该用户将无法登录系统，此操作不可恢复。"
-            onConfirm={() => handleDelete(record)}
-            okText="确定"
-            cancelText="取消"
-            okButtonProps={{ danger: true }}
-          >
-            <Button
-              type="text"
-              danger
-              icon={<DeleteOutlined />}
-              size="small"
-              loading={deleteUserMutation.isLoading}
+          {currentUser && record.id !== currentUser.id ? (
+            <Popconfirm
+              title="确定要删除这个用户吗？"
+              description="删除后该用户将无法登录系统，此操作不可恢复。"
+              onConfirm={() => handleDelete(record)}
+              okText="确定"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
             >
-              删除
-            </Button>
-          </Popconfirm>
+              <Button
+                type="text"
+                danger
+                icon={<DeleteOutlined />}
+                size="small"
+                loading={deleteUserMutation.isLoading}
+              >
+                删除
+              </Button>
+            </Popconfirm>
+          ) : (
+            <Tooltip title="不能删除当前登录账户">
+              <Button
+                type="text"
+                danger
+                icon={<DeleteOutlined />}
+                size="small"
+                disabled
+              >
+                删除
+              </Button>
+            </Tooltip>
+          )}
         </Space>
       ),
     },

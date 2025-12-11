@@ -1,4 +1,5 @@
-import { Layout } from 'antd'
+import { Layout, Button, message } from 'antd'
+import { LogoutOutlined } from '@ant-design/icons'
 import { Route, Routes, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import LoginPage from './pages/LoginPage'
@@ -47,7 +48,7 @@ const AdminRoute = ({ children }: { children: JSX.Element }) => {
 const AppHeader = () => {
   const navigate = useNavigate()
   const location = useLocation()
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, logout } = useAuth()
   const { data: user } = useQuery(
     ['currentUser'],
     getCurrentUser,
@@ -59,6 +60,11 @@ const AppHeader = () => {
   )
 
   const isActive = (path: string) => location.pathname === path
+
+  const handleLogout = () => {
+    logout()
+    message.success('已成功登出')
+  }
 
   return (
     <Header style={{ 
@@ -161,7 +167,7 @@ const AppHeader = () => {
         </div>
       )}
       {isAuthenticated && user && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: '14px', fontWeight: 400 }}>当前用户：</span>
           <span
             onClick={() => navigate('/user')}
@@ -181,6 +187,18 @@ const AppHeader = () => {
           >
             {user.full_name || user.email}
           </span>
+          <Button
+            type="default"
+            danger
+            size="small"
+            icon={<LogoutOutlined />}
+            onClick={handleLogout}
+            style={{
+              marginLeft: 8,
+            }}
+          >
+            登出
+          </Button>
         </div>
       )}
     </Header>

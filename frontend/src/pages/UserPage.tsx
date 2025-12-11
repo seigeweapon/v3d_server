@@ -1,9 +1,6 @@
-import { Card, Descriptions, Button, message, Tag, Space } from 'antd'
-import { LogoutOutlined } from '@ant-design/icons'
+import { Card, Descriptions, Tag, Space } from 'antd'
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
 import { getCurrentUser, User } from '../api/users'
-import { useAuth } from '../hooks/useAuth'
 
 // 格式化时间为本地时间：YYYY-MM-DD hh:mm:ss
 const formatLocalDateTime = (dateString: string): string => {
@@ -28,34 +25,16 @@ const formatLocalDateTime = (dateString: string): string => {
 }
 
 const UserPage = () => {
-  const navigate = useNavigate()
-  const { logout } = useAuth()
-  
   const { data: user, isLoading } = useQuery<User>(['currentUser'], getCurrentUser, {
     staleTime: 5 * 60 * 1000,
     refetchOnMount: false,
   })
-
-  const handleLogout = () => {
-    logout()
-    message.success('已成功登出')
-  }
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto' }}>
       <Card
         title="用户信息"
         loading={isLoading}
-        extra={
-          <Button
-            type="primary"
-            danger
-            icon={<LogoutOutlined />}
-            onClick={handleLogout}
-          >
-            登出
-          </Button>
-        }
       >
         {user && (
           <Descriptions column={1} bordered>
