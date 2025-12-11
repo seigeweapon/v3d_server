@@ -6,6 +6,7 @@ export interface Job {
   owner_id: number
   owner_full_name?: string
   status: string
+  run_id?: string | null
   parameters?: string
   tos_path?: string
   notes?: string
@@ -41,5 +42,15 @@ export async function deleteJob(id: number) {
 
 export async function updateJobVisibility(id: number, updates: JobVisibilityUpdate) {
   const { data } = await client.patch<Job>(`/jobs/${id}/visibility`, updates)
+  return data
+}
+
+export async function terminateJob(id: number) {
+  const { data } = await client.post<Job>(`/jobs/${id}/terminate`, {})
+  return data
+}
+
+export async function syncJobStatus(id: number) {
+  const { data } = await client.post<Job>(`/jobs/${id}/sync-status`, {})
   return data
 }

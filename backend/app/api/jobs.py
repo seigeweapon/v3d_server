@@ -15,6 +15,7 @@ from app.models.video import Video
 from app.models.user import User
 from app.schemas.job import JobCreate, JobRead, JobUpdate, JobVisibilityUpdate
 from app.services import tasks
+from app.services.prodia import ProdiaClientError
 from app.utils.storage import delete_tos_objects_by_prefix
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -114,9 +115,12 @@ def create_job(
     db.commit()
     db.refresh(job)
     # 加载owner关系以便在schema中获取full_name
-    db.refresh(job, ['owner'])
+    db.refresh(job, ["owner"])
 
-    tasks.submit_processing_job(job.id, video.tos_path, job.parameters)
+    try:
+        tasks.submit_processing_job(db, job, video)
+    except ProdiaClientError as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to start upstream workflow: {exc}") from exc
 
     return job
 
@@ -265,4 +269,40 @@ def update_job_visibility(
     db.commit()
     db.refresh(job)
     db.refresh(job, ['owner'])
+    return job
+
+
+@router.post("/{job_id}/terminate", response_model=JobRead)
+def terminate_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    job = db.query(Job).options(joinedload(Job.owner)).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.owner_id != current_user.id and not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Only owner or admin can terminate job")
+    try:
+        tasks.terminate_processing_job(db, job)
+    except ProdiaClientError as exc:
+        raise HTTPException(status_code=502, detail=f"Terminate upstream failed: {exc}") from exc
+    return job
+
+
+@router.post("/{job_id}/sync-status", response_model=JobRead)
+def sync_job_status(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    job = db.query(Job).options(joinedload(Job.owner)).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not can_user_view_job(job, current_user):
+        raise HTTPException(status_code=403, detail="You don't have permission to sync this job")
+    try:
+        tasks.sync_processing_status(db, job)
+    except ProdiaClientError as exc:
+        raise HTTPException(status_code=502, detail=f"Sync upstream status failed: {exc}") from exc
     return job

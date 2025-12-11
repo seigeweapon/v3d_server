@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { Button, Card, Form, Input, Select, Table, Tag, message, Tooltip, Modal, Popconfirm, Switch, Space } from 'antd'
-import { CopyOutlined, PlusOutlined, EditOutlined, SettingOutlined, StopOutlined, DeleteOutlined } from '@ant-design/icons'
+import { CopyOutlined, PlusOutlined, EditOutlined, SettingOutlined, StopOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchVideos, Video } from '../api/videos'
-import { createJob, fetchJobs, deleteJob, updateJobNotes, Job, updateJobVisibility, JobVisibilityUpdate } from '../api/jobs'
+import { createJob, fetchJobs, deleteJob, updateJobNotes, Job, updateJobVisibility, JobVisibilityUpdate, terminateJob, syncJobStatus } from '../api/jobs'
 import { getCurrentUser, fetchUsers, User } from '../api/users'
 
 const JobsPage = () => {
@@ -96,6 +96,40 @@ const JobsPage = () => {
     }
   )
 
+  const terminateJobMutation = useMutation(
+    async (jobId: number) => {
+      await terminateJob(jobId)
+    },
+    {
+      onSuccess: () => {
+        message.success('已请求终止任务')
+        queryClient.invalidateQueries(['jobs'])
+      },
+      onError: (error: any) => {
+        const errorMessage = error?.response?.data?.detail || error?.message || '终止失败'
+        message.error(`终止失败: ${errorMessage}`)
+        console.error('终止任务失败:', error)
+      }
+    }
+  )
+
+  const syncJobStatusMutation = useMutation(
+    async (jobId: number) => {
+      await syncJobStatus(jobId)
+    },
+    {
+      onSuccess: () => {
+        message.success('状态已同步')
+        queryClient.invalidateQueries(['jobs'])
+      },
+      onError: (error: any) => {
+        const errorMessage = error?.response?.data?.detail || error?.message || '同步失败'
+        message.error(`同步失败: ${errorMessage}`)
+        console.error('同步任务状态失败:', error)
+      }
+    }
+  )
+
   const getVideoInfo = (videoId: number): Video | undefined => {
     return videos?.find(v => v.id === videoId)
   }
@@ -134,8 +168,11 @@ const JobsPage = () => {
   }
 
   const handleTerminate = (job: Job) => {
-    // TODO: 实现终止功能
-    console.log('终止任务:', job.id)
+    terminateJobMutation.mutate(job.id)
+  }
+
+  const handleSyncStatus = (job: Job) => {
+    syncJobStatusMutation.mutate(job.id)
   }
 
   const handleDelete = (job: Job) => {
@@ -300,14 +337,41 @@ const JobsPage = () => {
       dataIndex: 'status', 
       width: 100,
       render: (status: string) => {
+        const normalized = status?.toLowerCase?.() || ''
         const colorMap: Record<string, string> = {
           'completed': 'green',
           'pending': 'blue',
           'processing': 'orange',
+          'running': 'orange',
+          'submitted': 'blue',
+          'terminated': 'gray',
           'failed': 'red'
         }
-        return <Tag color={colorMap[status] || 'default'}>{status}</Tag>
+        return <Tag color={colorMap[normalized] || 'default'}>{status || '-'}</Tag>
       }
+    },
+    {
+      title: 'Run ID',
+      dataIndex: 'run_id',
+      ellipsis: true,
+      render: (text: string | null | undefined) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Tooltip title={text || '-'} placement="topLeft">
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {text || '-'}
+            </span>
+          </Tooltip>
+          {text && (
+            <Button
+              type="text"
+              size="small"
+              icon={<CopyOutlined />}
+              onClick={() => handleCopy(text)}
+              style={{ flexShrink: 0 }}
+            />
+          )}
+        </div>
+      )
     },
     { 
       title: '参数', 
@@ -384,8 +448,18 @@ const JobsPage = () => {
             size="small" 
             icon={<StopOutlined />}
             onClick={() => handleTerminate(record)}
+            loading={terminateJobMutation.isLoading}
           >
             终止
+          </Button>
+          <Button
+            type="text"
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={() => handleSyncStatus(record)}
+            loading={syncJobStatusMutation.isLoading}
+          >
+            同步
           </Button>
           {currentUser?.is_superuser && (
             <Popconfirm

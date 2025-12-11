@@ -35,6 +35,58 @@ class Settings(BaseSettings):
         description="TOS job key 前缀，格式：<bucket>/<prefix>/<uuid>/",
     )
 
+    # Prodia / workflow execution service
+    prodia_base_url: str = Field(
+        "https://mediaapps-cn.byted.org",
+        env="PRODIA_BASE_URL",
+        description="Prodia 工作流基础 URL，例如 https://mediaapps-cn.byted.org",
+    )
+    prodia_api_key: Optional[str] = Field(
+        default=None,
+        env="PRODIA_API_KEY",
+        description="Prodia Bearer Token，用于调用 workflow_execution 接口",
+    )
+    prodia_env: Optional[str] = Field(
+        default=None,
+        env="PRODIA_ENV",
+        description="x-tt-env 头部，用于区分环境",
+    )
+    prodia_workflow_name: str = Field(
+        "v3d/v3d_train_workflow",
+        env="PRODIA_WORKFLOW_NAME",
+        description="Prodia workflowName 参数",
+    )
+    prodia_workflow_dp_name: str = Field(
+        "latest",
+        env="PRODIA_WORKFLOW_DP_NAME",
+        description="Prodia workflowDpName 参数",
+    )
+    prodia_task_list: str = Field(
+        "v3d/online",
+        env="PRODIA_TASK_LIST",
+        description="Prodia taskList 参数",
+    )
+    prodia_priority: int = Field(
+        1,
+        env="PRODIA_PRIORITY",
+        description="Prodia priority 参数",
+    )
+    prodia_timeout_seconds: int = Field(
+        60 * 60 * 24 * 3,
+        env="PRODIA_TIMEOUT_SECONDS",
+        description="Prodia timeout 秒数，默认 3 天",
+    )
+    prodia_callback_uri: Optional[AnyHttpUrl] = Field(
+        default=None,
+        env="PRODIA_CALLBACK_URI",
+        description="可选的回调地址",
+    )
+    prodia_callback_args: Optional[str] = Field(
+        default=None,
+        env="PRODIA_CALLBACK_ARGS",
+        description="回调参数，可选",
+    )
+
     cors_origins: List[AnyHttpUrl] = []
 
     class Config:

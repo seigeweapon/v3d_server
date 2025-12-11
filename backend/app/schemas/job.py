@@ -19,6 +19,7 @@ class JobRead(JobBase):
     owner_id: int
     owner_full_name: Optional[str] = None
     status: str
+    run_id: Optional[str] = None
     tos_path: Optional[str]
     notes: Optional[str]
     is_public: bool = False
