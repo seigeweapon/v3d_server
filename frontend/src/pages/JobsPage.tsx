@@ -357,9 +357,20 @@ const JobsPage = () => {
       render: (text: string | null | undefined) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Tooltip title={text || '-'} placement="topLeft">
-            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {text || '-'}
-            </span>
+            {text ? (
+              <a 
+                href={`https://cloud.bytedance.net/mipp/execution_details?runId=${text}`} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#1890ff' }}
+              >
+                {text}
+              </a>
+            ) : (
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                -
+              </span>
+            )}
           </Tooltip>
           {text && (
             <Button
