@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.api import deps
 from app.core.config import settings
@@ -38,7 +38,7 @@ router = APIRouter(prefix="/videos", tags=["videos"])
 def list_videos(
     db: Session = Depends(get_db), current_user: User = Depends(deps.get_current_active_user)
 ):
-    return db.query(Video).filter(Video.owner_id == current_user.id).all()
+    return db.query(Video).options(joinedload(Video.owner)).filter(Video.owner_id == current_user.id).all()
 
 
 @router.post("/upload", response_model=VideoRead)
@@ -102,6 +102,8 @@ def upload_video(
     db.add(video)
     db.commit()
     db.refresh(video)
+    # 加载owner关系以便在schema中获取full_name
+    db.refresh(video, ['owner'])
     
     # 为每个文件生成 PostObject 表单数据
     # 文件顺序：所有视频文件（cam_*.mp4/ts），所有背景文件（cam_*.png/jpg），标定文件（calibration_ba.json）
@@ -140,25 +142,9 @@ def upload_video(
         post_form_data_list.append(post_form_data)
     
     # 返回视频记录和上传表单数据
-    return VideoRead(
-        id=video.id,
-        owner_id=video.owner_id,
-        studio=video.studio,
-        producer=video.producer,
-        production=video.production,
-        action=video.action,
-        camera_count=video.camera_count,
-        prime_camera_number=video.prime_camera_number,
-        frame_count=video.frame_count,
-        frame_rate=video.frame_rate,
-        frame_width=video.frame_width,
-        frame_height=video.frame_height,
-        video_format=video.video_format,
-        tos_path=video.tos_path,
-        status=video.status,
-        created_at=video.created_at,
-        post_form_data_list=post_form_data_list,
-    )
+    video_read = VideoRead.from_orm(video)
+    video_read.post_form_data_list = post_form_data_list
+    return video_read
 
 
 @router.post("/", response_model=VideoRead)
@@ -175,24 +161,9 @@ def create_video(
     db.add(video)
     db.commit()
     db.refresh(video)
-    return VideoRead(
-        id=video.id,
-        owner_id=video.owner_id,
-        studio=video.studio,
-        producer=video.producer,
-        production=video.production,
-        action=video.action,
-        camera_count=video.camera_count,
-        prime_camera_number=video.prime_camera_number,
-        frame_count=video.frame_count,
-        frame_rate=video.frame_rate,
-        frame_width=video.frame_width,
-        frame_height=video.frame_height,
-        video_format=video.video_format,
-        tos_path=video.tos_path,
-        status=video.status,
-        created_at=video.created_at,
-    )
+    # 加载owner关系以便在schema中获取full_name
+    db.refresh(video, ['owner'])
+    return VideoRead.from_orm(video)
 
 
 @router.get("/{video_id}", response_model=VideoRead)
@@ -201,7 +172,7 @@ def get_video(
     db: Session = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user),
 ):
-    video = db.query(Video).filter(Video.id == video_id, Video.owner_id == current_user.id).first()
+    video = db.query(Video).options(joinedload(Video.owner)).filter(Video.id == video_id, Video.owner_id == current_user.id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
     return video
@@ -292,6 +263,8 @@ def mark_video_ready(
     db.add(video)
     db.commit()
     db.refresh(video)
+    # 加载owner关系以便在schema中获取full_name
+    db.refresh(video, ['owner'])
     return video
 
 
@@ -310,6 +283,8 @@ def mark_video_failed(
     db.add(video)
     db.commit()
     db.refresh(video)
+    # 加载owner关系以便在schema中获取full_name
+    db.refresh(video, ['owner'])
     return video
 
 
@@ -338,6 +313,8 @@ def update_video(
     db.add(video)
     db.commit()
     db.refresh(video)
+    # 加载owner关系以便在schema中获取full_name
+    db.refresh(video, ['owner'])
     return video
 
 

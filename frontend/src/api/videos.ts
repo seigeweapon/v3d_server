@@ -3,6 +3,7 @@ import client from './client'
 export interface Video {
   id: number
   owner_id: number
+  owner_full_name?: string
   studio: string
   producer: string
   production: string

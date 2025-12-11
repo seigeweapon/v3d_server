@@ -17,6 +17,7 @@ class JobCreate(JobBase):
 class JobRead(JobBase):
     id: int
     owner_id: int
+    owner_full_name: Optional[str] = None
     status: str
     tos_path: Optional[str]
     notes: Optional[str]
@@ -24,6 +25,14 @@ class JobRead(JobBase):
 
     class Config:
         orm_mode = True
+        
+    @classmethod
+    def from_orm(cls, obj):
+        # 从owner关系中获取full_name
+        instance = super().from_orm(obj)
+        if hasattr(obj, 'owner') and obj.owner:
+            instance.owner_full_name = obj.owner.full_name
+        return instance
 
 
 class JobUpdate(BaseModel):

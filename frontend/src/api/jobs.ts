@@ -3,6 +3,8 @@ import client from './client'
 export interface Job {
   id: number
   video_id: number
+  owner_id: number
+  owner_full_name?: string
   status: string
   parameters?: string
   tos_path?: string

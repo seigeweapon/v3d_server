@@ -85,6 +85,7 @@ class VideoRead(BaseModel):
     status: str
     id: int
     owner_id: int
+    owner_full_name: Optional[str] = None
     created_at: datetime
     # 仅在创建时返回的 PostObject 表单数据（用于浏览器表单上传，可绕过 CORS）
     # 如果上传多个文件，这是一个列表，每个元素对应一个文件的表单数据
@@ -92,3 +93,11 @@ class VideoRead(BaseModel):
 
     class Config:
         orm_mode = True
+        
+    @classmethod
+    def from_orm(cls, obj):
+        # 从owner关系中获取full_name
+        instance = super().from_orm(obj)
+        if hasattr(obj, 'owner') and obj.owner:
+            instance.owner_full_name = obj.owner.full_name
+        return instance

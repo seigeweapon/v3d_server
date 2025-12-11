@@ -3,7 +3,7 @@ from uuid import uuid4
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.api import deps
 from app.core.config import settings
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 @router.get("/", response_model=List[JobRead])
 def list_jobs(db: Session = Depends(get_db), current_user: User = Depends(deps.get_current_active_user)):
-    return db.query(Job).filter(Job.owner_id == current_user.id).all()
+    return db.query(Job).options(joinedload(Job.owner)).filter(Job.owner_id == current_user.id).all()
 
 
 @router.post("/", response_model=JobRead)
@@ -51,6 +51,8 @@ def create_job(
     db.add(job)
     db.commit()
     db.refresh(job)
+    # 加载owner关系以便在schema中获取full_name
+    db.refresh(job, ['owner'])
 
     tasks.submit_processing_job(job.id, video.tos_path, job.parameters)
 
@@ -63,7 +65,7 @@ def get_job(
     db: Session = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user),
 ):
-    job = db.query(Job).filter(Job.id == job_id, Job.owner_id == current_user.id).first()
+    job = db.query(Job).options(joinedload(Job.owner)).filter(Job.id == job_id, Job.owner_id == current_user.id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
@@ -143,4 +145,6 @@ def update_job(
     db.add(job)
     db.commit()
     db.refresh(job)
+    # 加载owner关系以便在schema中获取full_name
+    db.refresh(job, ['owner'])
     return job

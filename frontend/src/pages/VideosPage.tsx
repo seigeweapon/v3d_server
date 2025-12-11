@@ -576,6 +576,13 @@ const VideosPage = () => {
 
   const videoColumns = [
     { title: 'ID', dataIndex: 'id', width: 80 },
+    { 
+      title: '创建人', 
+      dataIndex: 'owner_full_name',
+      width: 120,
+      ellipsis: true,
+      render: (text: string) => text || '-'
+    },
     { title: '摄影棚', dataIndex: 'studio' },
     { title: '制片方', dataIndex: 'producer' },
     { title: '制作', dataIndex: 'production' },

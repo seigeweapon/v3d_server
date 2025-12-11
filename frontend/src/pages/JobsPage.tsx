@@ -162,6 +162,13 @@ const JobsPage = () => {
       width: 80
     },
     { 
+      title: '创建人', 
+      dataIndex: 'owner_full_name',
+      width: 120,
+      ellipsis: true,
+      render: (text: string) => text || '-'
+    },
+    { 
       title: '视频信息', 
       key: 'video_info',
       render: (_: any, record: Job) => formatVideoInfo(record.video_id),
