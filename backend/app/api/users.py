@@ -6,6 +6,8 @@ from app.api import deps
 from app.core.security import get_password_hash, verify_password
 from app.database import get_db
 from app.models.user import User
+from app.models.video import Video
+from app.models.job import Job
 from app.schemas.user import UserRead, UserUpdate, UserCreate
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -156,6 +158,24 @@ def delete_user(
     # 不允许删除自己
     if user.id == current_user.id:
         raise HTTPException(status_code=400, detail="不能删除自己的账户")
+    
+    # 检查是否有关联的视频数据
+    video_count = db.query(Video).filter(Video.owner_id == user_id).count()
+    
+    # 检查是否有关联的任务数据
+    job_count = db.query(Job).filter(Job.owner_id == user_id).count()
+    
+    # 如果有关联数据，提示用户
+    if video_count > 0 or job_count > 0:
+        error_detail = f"无法删除该用户，因为该用户还有关联数据："
+        if video_count > 0:
+            error_detail += f" {video_count} 个视频"
+        if job_count > 0:
+            if video_count > 0:
+                error_detail += "，"
+            error_detail += f" {job_count} 个任务"
+        error_detail += "。请先删除所有关联数据后再删除用户。"
+        raise HTTPException(status_code=400, detail=error_detail)
     
     db.delete(user)
     db.commit()
