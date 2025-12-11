@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.database import get_db
 from app.models.user import User
 from app.models.video import Video
+from app.models.job import Job
 from app.schemas.video import (
     VideoCreate,
     VideoRead,
@@ -267,6 +268,14 @@ def delete_video(
     
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+    
+    # 检查是否有关联的训练任务
+    job_count = db.query(Job).filter(Job.video_id == video_id).count()
+    if job_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"无法删除该视频，因为还存在 {job_count} 个基于此视频的训练任务。请先删除所有关联的训练任务后再删除视频。"
+        )
     
     # 从 tos_path 中提取路径前缀（去掉 tos://bucket/ 前缀）
     # tos_path 格式: tos://{bucket}/{prefix}/{uuid}/
