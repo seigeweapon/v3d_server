@@ -57,7 +57,7 @@ class Settings(BaseSettings):
         description="Prodia workflowName 参数",
     )
     prodia_workflow_dp_name: str = Field(
-        "latest",
+        "default",
         env="PRODIA_WORKFLOW_DP_NAME",
         description="Prodia workflowDpName 参数",
     )

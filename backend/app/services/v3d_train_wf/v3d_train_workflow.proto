@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package prodia.v3d_train_workflow.api;
+
+option go_package = "prodia/v3d_train_workflow/api";
+
+service ProdiaWorkflows {
+    rpc V3DTrainWorkflow(V3DTrainWorkflowRequest) returns (V3DTrainWorkflowResponse) {}
+}
+
+message V3DTrainWorkflowRequest {
+    message V3dTosInfo {
+        string ak = 1;
+        string sk = 2;
+        string endpoint = 3;
+        string region = 4;
+    }
+    V3dTosInfo tos = 1;
+    string workspace_url = 2;       // has _video or _frame folder
+    string frame_url = 3;           // [optional] default is workspace_url/_frame, skip frame_extraction if set
+    string calib_url = 4;           // [optional] default is workspace_url/calib, skip calibration operator if set
+    string background_url = 5;      // [optional] default is workspace_url/background
+    string mask_url = 6;            // [optional] default is output_url/mask, skip matting operator if set
+    string flow_url = 7;            // [optional] default is output_url/flow
+    string output_url = 8;          // [optional] default is workspace_url/_model_<datatime>, contains outputs of training op, postprocess op
+    int32  gop_size = 9;            // [optional] default is 100
+    int32  frame_start = 10;        // [optional] default is 0
+    int32  frame_number = 11;       // [optional] default is number of all available frames
+    int32  camera_number = 12;      // [optional] default is number of all available cameras
+    string matting_mode = 13;       // [optional] default is bg_matting
+    string training_configs = 14;   // [optional] default is pybytevv-SDK's default cfg file, with no override
+    bool   do_devignetting = 15;    // [optional] default is false, do vignetting correction in preprocess
+    bool   debug = 16;              // [optional] default is false
+    string op_versions = 17;        // [optional] default is '{}' (for using default versions), can override if set like {"v3d_train":"@42"}
+    string render_views_url = 18;   // [optional] default is '', disabled.
+}
+
+message V3DTrainWorkflowResponse {
+    string msg = 1;
+}
+
+message V3DTrainWorkflowProgress {
+    bool  frame_extraction_done = 1;
+    bool  calibration_done = 2;
+    int32 frame_start = 3;
+    int32 frame_number = 4;
+    int32 gop_size = 5;
+    int32 frames_done_total = 6;
+    repeated int32 frames_done_map_coded = 7; // run length coded map; in the map, 1 for a frame done, 0 for not-done
+}

@@ -55,15 +55,22 @@ class ProdiaClient:
             raise ProdiaClientError("Prodia response is not valid JSON") from exc
 
     @staticmethod
+    def _is_base64(s: str) -> bool:
+        """检查字符串是否为有效的base64编码。"""
+        try:
+            base64.b64decode(s)
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
     def _ensure_base64_blob(raw: str | Dict[str, Any]) -> str:
         """Accept either a pre-encoded base64 string or dict and produce base64 string."""
         if isinstance(raw, str):
             # If looks like base64, just return; otherwise encode.
-            try:
-                base64.b64decode(raw)
+            if ProdiaClient._is_base64(raw):
                 return raw
-            except Exception:
-                return base64.b64encode(raw.encode()).decode()
+            return base64.b64encode(raw.encode()).decode()
         data = json.dumps(raw)
         return base64.b64encode(data.encode()).decode()
 
@@ -72,7 +79,8 @@ class ProdiaClient:
         payload: Dict[str, Any] = {
             "workflowName": settings.prodia_workflow_name,
             "workflowDpName": settings.prodia_workflow_dp_name,
-            "input": {"blobs": [self._ensure_base64_blob(blob)]},
+            # 如果blob已经是base64字符串，直接使用；否则进行编码
+            "input": {"blobs": [blob if isinstance(blob, str) and self._is_base64(blob) else self._ensure_base64_blob(blob)]},
             "timeout": settings.prodia_timeout_seconds,
             "callbackUri": settings.prodia_callback_uri or "",
             "callbackArgs": settings.prodia_callback_args or "",
