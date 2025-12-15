@@ -20,19 +20,6 @@ export interface Video {
   is_public: boolean
   visible_to_user_ids?: string | null
   created_at: string
-  // 仅在创建时返回的 PostObject 表单数据
-  post_form_data_list?: Array<{
-    action: string
-    fields: {
-      key: string
-      policy: string
-      'x-tos-algorithm': string
-      'x-tos-credential': string
-      'x-tos-date': string
-      'x-tos-signature': string
-      'Content-Type'?: string
-    }
-  }>
 }
 
 export async function fetchVideos() {
@@ -56,11 +43,14 @@ export async function deleteVideo(id: number) {
 }
 
 export async function uploadVideo(
-  video: {
+  params: {
     studio: string
     producer: string
     production: string
     action: string
+    videos: File[]
+    backgrounds: File[]
+    calibration: File
     camera_count?: number
     prime_camera_number?: number
     frame_count?: number
@@ -68,10 +58,55 @@ export async function uploadVideo(
     frame_width?: number
     frame_height?: number
     video_format?: string
-    file_infos?: Array<{ name: string; type: string }>
+    onUploadProgress?: (progressEvent: any) => void
   }
 ) {
-  const { data } = await client.post<Video>('/videos/upload', video)
+  const formData = new FormData()
+  
+  // 添加文本字段
+  formData.append('studio', params.studio)
+  formData.append('producer', params.producer)
+  formData.append('production', params.production)
+  formData.append('action', params.action)
+  
+  // 添加可选的元数据字段
+  if (params.camera_count !== undefined) {
+    formData.append('camera_count', params.camera_count.toString())
+  }
+  if (params.prime_camera_number !== undefined) {
+    formData.append('prime_camera_number', params.prime_camera_number.toString())
+  }
+  if (params.frame_count !== undefined) {
+    formData.append('frame_count', params.frame_count.toString())
+  }
+  if (params.frame_rate !== undefined) {
+    formData.append('frame_rate', params.frame_rate.toString())
+  }
+  if (params.frame_width !== undefined) {
+    formData.append('frame_width', params.frame_width.toString())
+  }
+  if (params.frame_height !== undefined) {
+    formData.append('frame_height', params.frame_height.toString())
+  }
+  if (params.video_format !== undefined) {
+    formData.append('video_format', params.video_format)
+  }
+  
+  // 添加文件（多个视频和背景文件使用相同的字段名）
+  params.videos.forEach(file => {
+    formData.append('videos', file)
+  })
+  params.backgrounds.forEach(file => {
+    formData.append('backgrounds', file)
+  })
+  formData.append('calibration', params.calibration)
+  
+  const { data } = await client.post<Video>('/videos/upload', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+    onUploadProgress: params.onUploadProgress,
+  })
   return data
 }
 

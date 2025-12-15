@@ -243,6 +243,48 @@ def delete_tos_objects_by_prefix(prefix: str) -> None:
         raise RuntimeError(error_msg)
 
 
+def upload_file_to_tos(file_data: bytes, object_key: str, content_type: Optional[str] = None) -> None:
+    """
+    将文件数据直接上传到 TOS。
+    
+    Args:
+        file_data: 文件的二进制数据
+        object_key: TOS 对象 key
+        content_type: MIME 类型（可选）
+    
+    Raises:
+        RuntimeError: 如果上传失败
+    """
+    import io
+    client = get_tos_client()
+    bucket = settings.tos_bucket
+    if not bucket:
+        raise RuntimeError("TOS_BUCKET 未配置")
+    
+    try:
+        # 使用 put_object 上传文件
+        # TOS SDK 可能需要直接传递字节数据
+        # 参考文档：https://www.volcengine.com/docs/6349/129225?lang=zh
+        # 尝试直接传递字节数据，不使用 BytesIO
+        if content_type:
+            client.put_object(
+                bucket=bucket,
+                key=object_key,
+                content=file_data,  # 直接传递字节数据
+                content_type=content_type
+            )
+        else:
+            client.put_object(
+                bucket=bucket,
+                key=object_key,
+                content=file_data  # 直接传递字节数据
+            )
+    except Exception as e:
+        import logging
+        logging.error(f"上传文件到 TOS 失败 (key={object_key}): {e}")
+        raise RuntimeError(f"上传文件到 TOS 失败: {str(e)}") from e
+
+
 def generate_tos_post_form_data(object_key: str, content_type: Optional[str] = None, expires: int = 3600) -> dict:
     """
     为指定对象 key 生成 TOS PostObject 表单数据（用于浏览器表单上传，可绕过 CORS）。

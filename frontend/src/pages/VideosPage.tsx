@@ -1,7 +1,7 @@
 import { Card, Table, Button, Modal, message, Tag, Popconfirm, Progress, Tooltip, Form, Input, Space, Descriptions, Checkbox, Switch, Select } from 'antd'
 import { PlusOutlined, CopyOutlined, DeleteOutlined, EditOutlined, CloseOutlined, EyeOutlined, DownloadOutlined, SettingOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
-import { fetchVideos, Video, uploadVideo, deleteVideo, markVideoReady, markVideoFailed, updateVideo, extractVideoMetadata, downloadVideoZip, updateVideoVisibility, VideoVisibilityUpdate } from '../api/videos'
+import { fetchVideos, Video, uploadVideo, deleteVideo, updateVideo, extractVideoMetadata, downloadVideoZip, updateVideoVisibility, VideoVisibilityUpdate } from '../api/videos'
 import { fetchUsers, User } from '../api/users'
 import { getCurrentUser } from '../api/users'
 import { useRef, useState, useEffect } from 'react'
@@ -220,130 +220,58 @@ const VideosPage = () => {
         }
       }
 
-      // 对视频文件按文件名排序
-      const sortedVideoFiles = [...files.videos].sort((a, b) => a.name.localeCompare(b.name))
-      
-      // 对背景文件按文件名排序
-      const sortedBackgroundFiles = [...files.backgrounds].sort((a, b) => a.name.localeCompare(b.name))
-
-      // 重命名视频文件：cam_1.mp4, cam_2.mp4, ... (保留原扩展名)
-      const renamedVideoFiles = sortedVideoFiles.map((file, index) => {
-        const ext = file.name.split('.').pop()?.toLowerCase() || 'mp4'
-        const newName = `cam_${index + 1}.${ext}`
-        return new File([file], newName, { type: file.type })
+      // 显示上传和转换进度
+      setUploadProgress({
+        visible: true,
+        current: 0,
+        total: 100,
+        currentFile: '正在上传文件并进行格式转换...'
       })
 
-      // 重命名背景文件：cam_1.png, cam_2.jpg, ... (保留原扩展名)
-      const renamedBackgroundFiles = sortedBackgroundFiles.map((file, index) => {
-        const ext = file.name.split('.').pop()?.toLowerCase() || 'png'
-        const newName = `cam_${index + 1}.${ext}`
-        return new File([file], newName, { type: file.type })
-      })
-
-      // 标定文件：calibration_ba.json
-      const calibrationNewName = 'calibration_ba.json'
-      const renamedCalibrationFile = new File([files.calibration], calibrationNewName, { type: files.calibration.type })
-
-      // 提取文件信息（使用新文件名）
-      const fileInfos = [
-        ...renamedVideoFiles.map(file => ({ name: file.name, type: file.type || 'video/mp4' })),
-        ...renamedBackgroundFiles.map(file => ({ name: file.name, type: file.type || 'image/png' })),
-        { name: calibrationNewName, type: files.calibration.type || 'application/json' }
-      ]
-
-      // 第一步：在后端创建视频记录（生成 tos_path 和 PostObject 表单数据）
-      let created: Video | null = null
-      try {
-        created = await uploadVideo({
-          studio,
-          producer,
-          production,
-          action,
-          camera_count: files.videos.length,  // 相机数 = 视频文件数量
-          prime_camera_number: 1,  // 主相机编号，默认为1
-          frame_count: videoMetadata?.frame_count,
-          frame_rate: videoMetadata?.frame_rate,
-          frame_width: videoMetadata?.frame_width,
-          frame_height: videoMetadata?.frame_height,
-          video_format: videoMetadata?.video_format,
-          file_infos: fileInfos
-        })
-
-        // 使用重命名后的文件（按顺序：所有视频文件，所有背景文件，标定文件）
-        const fileList = [...renamedVideoFiles, ...renamedBackgroundFiles, renamedCalibrationFile]
-
-        if (!created.post_form_data_list || created.post_form_data_list.length !== fileInfos.length) {
-          throw new Error(`后端返回的表单数据数量不正确：期望 ${fileInfos.length} 个，实际 ${created.post_form_data_list?.length || 0} 个`)
-        }
-
-        // 第二步：使用 PostObject 表单上传所有文件到 TOS
-        // 更新进度显示（从元数据读取切换到文件上传）
-        setUploadProgress({
-          visible: true,
-          current: 0,
-          total: fileList.length,
-          currentFile: '准备上传文件...'
-        })
-        for (let i = 0; i < fileList.length; i++) {
-          const file = fileList[i]
-          const postFormData = created.post_form_data_list[i]
-          const { action: uploadAction, fields } = postFormData
-
-          setUploadProgress(prev => prev ? {
-            ...prev,
-            currentFile: file.name
-          } : null)
-
-          const formData = new FormData()
-          Object.entries(fields).forEach(([key, value]) => {
-            formData.append(key, value as string)
-          })
-          formData.append('file', file)
-
-          let uploadSuccess = false
-          try {
-            const response = await fetch(uploadAction, {
-              method: 'POST',
-              body: formData,
-            })
-
-            if (response.status >= 200 && response.status < 300) {
-              uploadSuccess = true
-            } else {
-              const errorText = await response.text().catch(() => '无法读取错误信息')
-              console.warn(`文件 ${file.name} 上传响应状态码 ${response.status}:`, errorText)
-              uploadSuccess = true // 假设上传成功
-            }
-          } catch (error: any) {
-            console.warn(`文件 ${file.name} 上传请求异常:`, error)
-            uploadSuccess = true // 假设上传成功
-          }
-
-          if (!uploadSuccess) {
-            throw new Error(`文件 ${file.name} 上传到 TOS 失败`)
-          }
-
-          setUploadProgress(prev => prev ? {
-            ...prev,
-            current: prev.current + 1
-          } : null)
-        }
-
-        // 第三步：通知后端上传已完成，将状态标记为 ready
-        await markVideoReady(created.id)
-
-        return created
-      } catch (error: any) {
-        // 如果已经创建了视频记录，标记为失败状态
-        if (created && created.id) {
-          try {
-            await markVideoFailed(created.id)
-          } catch (e) {
-            console.error('标记视频失败状态时出错:', e)
+      // 直接调用新的上传API，后端会处理文件转换和上传
+      const result = await uploadVideo({
+        studio,
+        producer,
+        production,
+        action,
+        videos: files.videos,
+        backgrounds: files.backgrounds,
+        calibration: files.calibration,
+        camera_count: files.videos.length,
+        prime_camera_number: 1,
+        frame_count: videoMetadata?.frame_count,
+        frame_rate: videoMetadata?.frame_rate,
+        frame_width: videoMetadata?.frame_width,
+        frame_height: videoMetadata?.frame_height,
+        video_format: videoMetadata?.video_format,
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            const percent = Math.round((progressEvent.loaded / progressEvent.total) * 100)
+            setUploadProgress(prev => prev ? {
+              ...prev,
+              current: percent,
+              currentFile: percent < 100 ? `正在上传文件... ${percent}%` : '文件上传完成，正在转换和处理文件...'
+            } : null)
           }
         }
+      }).catch((error) => {
+        // 如果上传过程中出错，确保提示也被更新
+        setUploadProgress(prev => prev ? {
+          ...prev,
+          currentFile: '上传失败'
+        } : null)
         throw error
-      }
+      })
+
+      // 上传完成后，后端仍在处理转换和上传到TOS，更新提示
+      // 注意：由于后端API是同步的，这个提示可能在处理完成前显示
+      setUploadProgress(prev => prev ? {
+        ...prev,
+        current: 100,
+        currentFile: '正在转换文件格式并上传到存储...'
+      } : null)
+
+      return result
     },
     {
       onSuccess: (_, variables) => {
@@ -605,11 +533,11 @@ const VideosPage = () => {
     const files = Array.from(fileList)
     const invalidFiles = files.filter(file => {
       const ext = file.name.split('.').pop()?.toLowerCase()
-      return ext !== 'png' && ext !== 'jpeg' && ext !== 'jpg'
+      return ext !== 'png' && ext !== 'mp4'
     })
 
     if (invalidFiles.length > 0) {
-      message.error('背景文件必须是 png、jpeg 或 jpg 格式')
+      message.error('背景文件必须是 png 或 mp4 格式（MP4 会自动转换为 PNG）')
       event.target.value = ''
       return
     }
@@ -838,11 +766,13 @@ const VideosPage = () => {
         </div>
         <div style={{ marginTop: 16 }}>
           <p style={{ margin: 0, color: '#666' }}>
-            {uploadProgress?.currentFile ? `正在上传: ${uploadProgress.currentFile}` : '准备上传...'}
+            {uploadProgress?.currentFile || '准备上传...'}
           </p>
-          <p style={{ margin: '8px 0 0 0', color: '#999', fontSize: '12px' }}>
-            {uploadProgress ? `${uploadProgress.current} / ${uploadProgress.total} 个文件` : ''}
-          </p>
+          {uploadProgress && uploadProgress.total > 100 && (
+            <p style={{ margin: '8px 0 0 0', color: '#999', fontSize: '12px' }}>
+              {`${uploadProgress.current} / ${uploadProgress.total} 个文件`}
+            </p>
+          )}
         </div>
       </Modal>
 
@@ -1008,7 +938,7 @@ const VideosPage = () => {
             <input
               ref={backgroundFileInputRef}
               type="file"
-              accept=".png,.jpeg,.jpg"
+              accept=".png,.mp4"
               multiple
               style={{ display: 'none' }}
               onChange={handleBackgroundFileChange}

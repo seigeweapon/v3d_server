@@ -1,12 +1,15 @@
+import asyncio
 import io
 import json
+import os
 import zipfile
 from datetime import datetime
-from typing import List
+from pathlib import Path
+from typing import List, Optional
 from urllib.request import urlopen
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_
@@ -20,7 +23,6 @@ from app.models.job import Job
 from app.schemas.video import (
     VideoCreate,
     VideoRead,
-    VideoUpload,
     VideoUpdate,
     VideoDownloadRequest,
     VideoDownloadResponse,
@@ -32,8 +34,10 @@ from app.utils.storage import (
     delete_tos_objects_by_prefix,
     list_tos_objects,
     generate_tos_download_url,
+    upload_file_to_tos,
 )
 from app.utils.video_metadata import get_video_metadata_from_file
+from app.utils.file_converter import convert_background_mp4_to_png, convert_video_mp4_to_ts
 
 router = APIRouter(prefix="/videos", tags=["videos"])
 
@@ -103,109 +107,224 @@ def list_videos(
 
 
 @router.post("/upload", response_model=VideoRead)
-def upload_video(
-    video_in: VideoUpload,
+async def upload_video(
+    studio: str = Form(...),
+    producer: str = Form(...),
+    production: str = Form(...),
+    action: str = Form(...),
+    videos: List[UploadFile] = File(...),
+    backgrounds: List[UploadFile] = File(...),
+    calibration: UploadFile = File(...),
+    camera_count: Optional[int] = Form(None),
+    prime_camera_number: Optional[int] = Form(None),
+    frame_count: Optional[int] = Form(None),
+    frame_rate: Optional[float] = Form(None),
+    frame_width: Optional[int] = Form(None),
+    frame_height: Optional[int] = Form(None),
+    video_format: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user),
 ):
-    """创建视频记录并生成 TOS 上传表单数据"""
-    # 生成 UUID 作为目录名
-    uuid_dir = str(uuid4())
+    """
+    上传视频数据：接收文件，进行格式转换（如果需要），然后上传到 TOS。
     
-    # 生成 TOS 路径前缀：<tos_key_prefix>/<uuid>（用于数据库存储）
-    # 注意：uuid 层级之下会有多个文件夹：video、background、calibration
-    key_prefix = settings.tos_key_prefix.rstrip("/")
-    uuid_path = f"{key_prefix}/{uuid_dir}"
+    文件转换规则：
+    - 背景文件：如果上传的是 MP4，会提取首帧转换为 PNG
+    - 视频文件：如果上传的是 MP4，会转换为带索引头的 TS 文件
+    """
+    import logging
+    logger = logging.getLogger(__name__)
     
-    # 用于写入数据库/展示的 tos_path，可包含 bucket 信息（只到 UUID 目录）
-    tos_path = f"tos://{settings.tos_bucket}/{uuid_path}/"
-    
-    # 计算相机数：如果提供了 camera_count 则使用，否则从 file_infos 中统计视频文件数量
-    if video_in.camera_count is not None:
-        camera_count = video_in.camera_count
-    elif video_in.file_infos:
-        # 统计以 cam_ 开头且扩展名为 mp4 或 ts 的文件数量
-        camera_count = sum(
-            1 for file_info in video_in.file_infos
-            if file_info.get("name", "").startswith("cam_") and 
-               (file_info.get("name", "").endswith(".mp4") or file_info.get("name", "").endswith(".ts"))
-        )
-        if camera_count == 0:
-            camera_count = 1  # 如果没有找到视频文件，默认值为1
-    else:
-        camera_count = 1  # 默认值
-    
-    # 使用前端传来的元数据，如果没有提供则使用默认值
-    prime_camera_number = video_in.prime_camera_number if video_in.prime_camera_number is not None else 1
-    frame_count = video_in.frame_count if video_in.frame_count is not None else 0
-    frame_rate = video_in.frame_rate if video_in.frame_rate is not None else 30.0
-    frame_width = video_in.frame_width if video_in.frame_width is not None else 1920
-    frame_height = video_in.frame_height if video_in.frame_height is not None else 1080
-    video_format = video_in.video_format if video_in.video_format is not None else "mp4"
-    
-    # 创建视频记录
-    video = Video(
-        owner_id=current_user.id,
-        studio=video_in.studio,
-        producer=video_in.producer,
-        production=video_in.production,
-        action=video_in.action,
-        camera_count=camera_count,  # 使用计算出的相机数
-        prime_camera_number=prime_camera_number,
-        frame_count=frame_count,
-        frame_rate=frame_rate,
-        frame_width=frame_width,
-        frame_height=frame_height,
-        video_format=video_format,
-        tos_path=tos_path,
-        status="uploading",  # 初始状态为上传中
-    )
-    db.add(video)
-    db.commit()
-    db.refresh(video)
-    # 加载owner关系以便在schema中获取full_name
-    db.refresh(video, ['owner'])
-    
-    # 为每个文件生成 PostObject 表单数据
-    # 文件顺序：所有视频文件（cam_*.mp4/ts），所有背景文件（cam_*.png/jpg），标定文件（calibration_ba.json）
-    post_form_data_list = []
-    if video_in.file_infos:
-        key_prefix = settings.tos_key_prefix.rstrip("/")
+    try:
+        # 生成 UUID 作为目录名
+        uuid_dir = str(uuid4())
         
-        for file_info in video_in.file_infos:
-            filename = file_info.get("name", "unknown")
-            content_type = file_info.get("type")  # MIME 类型
+        # 生成 TOS 路径前缀
+        key_prefix = settings.tos_key_prefix.rstrip("/")
+        uuid_path = f"{key_prefix}/{uuid_dir}"
+        tos_path = f"tos://{settings.tos_bucket}/{uuid_path}/"
+        
+        # 计算相机数
+        if camera_count is not None:
+            camera_count_val = camera_count
+        else:
+            camera_count_val = len(videos) if videos else 1
+        
+        # 使用元数据或默认值
+        prime_camera_number_val = prime_camera_number if prime_camera_number is not None else 1
+        frame_count_val = frame_count if frame_count is not None else 0
+        frame_rate_val = frame_rate if frame_rate is not None else 30.0
+        frame_width_val = frame_width if frame_width is not None else 1920
+        frame_height_val = frame_height if frame_height is not None else 1080
+        video_format_val = video_format if video_format is not None else "ts"  # 默认转换为TS
+        
+        # 创建视频记录（状态为 uploading）
+        video = Video(
+            owner_id=current_user.id,
+            studio=studio,
+            producer=producer,
+            production=production,
+            action=action,
+            camera_count=camera_count_val,
+            prime_camera_number=prime_camera_number_val,
+            frame_count=frame_count_val,
+            frame_rate=frame_rate_val,
+            frame_width=frame_width_val,
+            frame_height=frame_height_val,
+            video_format=video_format_val,
+            tos_path=tos_path,
+            status="uploading",
+        )
+        db.add(video)
+        db.commit()
+        db.refresh(video)
+        db.refresh(video, ['owner'])
+        
+        # 计算并行度（CPU核数的80%）
+        cpu_count = os.cpu_count() or 1
+        max_workers = max(1, int(cpu_count * 0.8))
+        logger.info(f"使用并行处理，并行度: {max_workers} (CPU核心数: {cpu_count})")
+        semaphore = asyncio.Semaphore(max_workers)
+        
+        async def process_video_file(video_file: UploadFile, index: int) -> None:
+            """处理单个视频文件（异步）"""
+            async with semaphore:
+                try:
+                    file_data = await video_file.read()
+                    original_filename = video_file.filename or f"video_{index}.mp4"
+                    
+                    # 检查文件扩展名
+                    ext = Path(original_filename).suffix.lower()
+                    
+                    # 如果是 MP4，转换为 TS（在线程池中执行，因为这是CPU密集型操作）
+                    if ext == '.mp4':
+                        logger.info(f"转换视频文件 {original_filename} 为 TS 格式...")
+                        file_data, _ = await asyncio.to_thread(convert_video_mp4_to_ts, file_data, original_filename)
+                        filename = f"cam_{index}.ts"
+                        content_type = 'video/mp2t'
+                    elif ext == '.ts':
+                        filename = f"cam_{index}.ts"
+                        content_type = 'video/mp2t'
+                    else:
+                        raise ValueError(f"不支持的视频格式: {ext}，仅支持 MP4 和 TS")
+                    
+                    # 生成对象 key
+                    object_key = f"{key_prefix}/{uuid_dir}/video/{filename}"
+                    
+                    # 上传到 TOS（在线程池中执行，因为 TOS SDK 是同步的）
+                    logger.info(f"上传视频文件 {filename} 到 TOS...")
+                    await asyncio.to_thread(upload_file_to_tos, file_data, object_key, content_type)
+                    
+                except Exception as e:
+                    logger.error(f"处理视频文件失败 {video_file.filename}: {e}", exc_info=True)
+                    raise
+        
+        async def process_background_file(background_file: UploadFile, index: int) -> None:
+            """处理单个背景文件（异步）"""
+            async with semaphore:
+                try:
+                    file_data = await background_file.read()
+                    original_filename = background_file.filename or f"background_{index}.png"
+                    
+                    # 检查文件扩展名
+                    ext = Path(original_filename).suffix.lower()
+                    
+                    # 如果是 MP4，转换为 PNG（在线程池中执行，因为这是CPU密集型操作）
+                    if ext == '.mp4':
+                        logger.info(f"转换背景文件 {original_filename} 为 PNG 格式...")
+                        file_data, _ = await asyncio.to_thread(convert_background_mp4_to_png, file_data, original_filename)
+                        filename = f"cam_{index}.png"
+                        content_type = 'image/png'
+                    elif ext == '.png':
+                        filename = f"cam_{index}.png"
+                        content_type = 'image/png'
+                    else:
+                        raise ValueError(f"不支持的背景文件格式: {ext}，仅支持 PNG 和 MP4")
+                    
+                    # 生成对象 key
+                    object_key = f"{key_prefix}/{uuid_dir}/background/{filename}"
+                    
+                    # 上传到 TOS（在线程池中执行，因为 TOS SDK 是同步的）
+                    logger.info(f"上传背景文件 {filename} 到 TOS...")
+                    await asyncio.to_thread(upload_file_to_tos, file_data, object_key, content_type)
+                    
+                except Exception as e:
+                    logger.error(f"处理背景文件失败 {background_file.filename}: {e}", exc_info=True)
+                    raise
+        
+        # 处理视频文件（并行处理）
+        sorted_videos = sorted(videos, key=lambda f: f.filename or "")
+        try:
+            await asyncio.gather(*[
+                process_video_file(video_file, i + 1)
+                for i, video_file in enumerate(sorted_videos)
+            ])
+        except Exception as e:
+            video.status = "failed"
+            db.commit()
+            raise HTTPException(status_code=500, detail=f"处理视频文件失败: {str(e)}")
+        
+        # 处理背景文件（并行处理）
+        sorted_backgrounds = sorted(backgrounds, key=lambda f: f.filename or "")
+        try:
+            await asyncio.gather(*[
+                process_background_file(background_file, i + 1)
+                for i, background_file in enumerate(sorted_backgrounds)
+            ])
+        except Exception as e:
+            video.status = "failed"
+            db.commit()
+            raise HTTPException(status_code=500, detail=f"处理背景文件失败: {str(e)}")
+        
+        # 处理标定文件（统一命名为 calibration_ba.json）
+        try:
+            calibration_data = await calibration.read()
+            original_filename = calibration.filename or "calibration.json"
             
-            # 根据文件名判断文件类型
-            if filename.startswith("cam_") and (filename.endswith(".mp4") or filename.endswith(".ts")):
-                category = "video"
-            elif filename.startswith("cam_") and (filename.endswith(".png") or filename.endswith(".jpg") or filename.endswith(".jpeg")):
-                category = "background"
-            elif filename.startswith("calibration_"):
-                category = "calibration"
-            else:
-                # 默认根据 MIME 类型判断
-                if content_type and content_type.startswith("video/"):
-                    category = "video"
-                elif content_type and content_type.startswith("image/"):
-                    category = "background"
-                else:
-                    category = "calibration"
+            # 检查文件扩展名（使用原始文件名检查）
+            ext = Path(original_filename).suffix.lower()
+            if ext not in ['.json', '.txt']:
+                raise HTTPException(status_code=400, detail=f"不支持的标定文件格式: {ext}，仅支持 JSON 和 TXT")
             
-            # 对象 key 格式：<tos_key_prefix>/<uuid>/<category>/<filename>
-            object_key = f"{key_prefix}/{uuid_dir}/{category}/{filename}"
-            post_form_data = generate_tos_post_form_data(object_key, content_type=content_type)
-            post_form_data_list.append(post_form_data)
-    else:
-        # 如果没有提供文件信息，生成一个占位表单数据
-        object_key = f"{key_prefix}/{uuid_dir}/placeholder"
-        post_form_data = generate_tos_post_form_data(object_key)
-        post_form_data_list.append(post_form_data)
-    
-    # 返回视频记录和上传表单数据
-    video_read = VideoRead.from_orm(video)
-    video_read.post_form_data_list = post_form_data_list
-    return video_read
+            # 统一重命名为 calibration_ba.json
+            filename = "calibration_ba.json"
+            
+            # 标定文件统一使用 JSON 内容类型
+            content_type = 'application/json'
+            
+            # 生成对象 key
+            object_key = f"{key_prefix}/{uuid_dir}/calibration/{filename}"
+            
+            # 上传到 TOS
+            logger.info(f"上传标定文件 {filename} 到 TOS...")
+            upload_file_to_tos(calibration_data, object_key, content_type=content_type)
+        except Exception as e:
+            logger.error(f"处理标定文件失败 {calibration.filename}: {e}")
+            video.status = "failed"
+            db.commit()
+            raise HTTPException(status_code=500, detail=f"处理标定文件失败: {str(e)}")
+        
+        # 标记为完成
+        video.status = "ready"
+        db.commit()
+        db.refresh(video)
+        db.refresh(video, ['owner'])
+        
+        return VideoRead.from_orm(video)
+        
+    except HTTPException:
+        # 重新抛出 HTTP 异常
+        raise
+    except Exception as e:
+        logger.error(f"上传视频失败: {e}", exc_info=True)
+        # 如果视频记录已创建，标记为失败
+        if 'video' in locals() and video.id:
+            try:
+                video.status = "failed"
+                db.commit()
+            except Exception:
+                pass
+        raise HTTPException(status_code=500, detail=f"上传视频失败: {str(e)}")
 
 
 @router.post("/", response_model=VideoRead)
