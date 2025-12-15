@@ -540,19 +540,30 @@ async def extract_video_metadata(
     current_user: User = Depends(deps.get_current_active_user),
 ):
     """
-    从视频文件中提取元数据（支持HEVC等格式）
+    从视频文件中提取元数据（支持HEVC、TS等所有格式）
     使用 ffprobe 读取视频信息
     """
-    # 检查文件类型
-    if not file.content_type or not file.content_type.startswith('video/'):
-        raise HTTPException(status_code=400, detail="文件必须是视频格式")
+    # 检查文件类型：检查MIME类型或文件扩展名
+    filename = file.filename or 'video.mp4'
+    ext = Path(filename).suffix.lower()
+    
+    # 允许的视频文件扩展名
+    video_extensions = {'.mp4', '.ts', '.mov', '.avi', '.mkv', '.webm', '.flv', '.m4v'}
+    is_video_by_ext = ext in video_extensions
+    is_video_by_mime = file.content_type and file.content_type.startswith('video/')
+    
+    if not is_video_by_ext and not is_video_by_mime:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"文件必须是视频格式。当前文件类型: {file.content_type or '未知'}, 扩展名: {ext or '无'}"
+        )
     
     try:
         # 读取文件内容
         file_data = await file.read()
         
-        # 使用 ffprobe 读取元数据
-        metadata = get_video_metadata_from_file(file_data, file.filename or 'video.mp4')
+        # 使用 ffprobe 读取元数据（ffprobe支持所有视频格式，包括TS）
+        metadata = get_video_metadata_from_file(file_data, filename)
         
         return {
             "duration": metadata['duration'],
